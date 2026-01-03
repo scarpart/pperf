@@ -339,3 +339,42 @@ fn test_top_command_combined_flags() {
         );
     }
 }
+
+// T042: Integration test for --no-color flag
+#[test]
+fn test_top_command_no_color_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--", "top", "--no-color", "perf-report.txt"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "Command failed: {}", stderr);
+
+    // Verify no ANSI escape codes in output
+    assert!(
+        !stdout.contains('\x1b'),
+        "Output should have no ANSI escape codes with --no-color"
+    );
+}
+
+// T043: Integration test for piped output having no ANSI codes
+#[test]
+fn test_top_command_piped_no_color() {
+    // When output is piped (not a TTY), colors should be disabled automatically
+    // In tests, output is not a TTY, so colors should be disabled
+    let output = Command::new("cargo")
+        .args(["run", "--", "top", "perf-report.txt"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Since we're piping output (not a TTY), there should be no ANSI codes
+    assert!(
+        !stdout.contains('\x1b'),
+        "Piped output should have no ANSI escape codes"
+    );
+}

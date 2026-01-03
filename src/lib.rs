@@ -1,6 +1,7 @@
 pub mod filter;
 pub mod output;
 pub mod parser;
+pub mod symbol;
 
 use std::fmt;
 
