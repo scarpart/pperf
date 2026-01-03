@@ -55,6 +55,8 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
     let mut no_color_flag = false;
     // T044: Add --hierarchy flag parsing
     let mut hierarchy_flag = false;
+    // T004: Add --debug flag parsing
+    let mut debug_flag = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -68,6 +70,10 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
             // T044: Parse --hierarchy / -H flag
             "--hierarchy" | "-H" => {
                 hierarchy_flag = true;
+            }
+            // T004: Parse --debug / -D flag
+            "--debug" | "-D" => {
+                debug_flag = true;
             }
             "-n" | "--number" => {
                 i += 1;
@@ -143,9 +149,9 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
         // Build hierarchy entries with adjusted percentages
         let hierarchy_entries = build_hierarchy_entries(&entries, &targets, &relations);
 
-        // Format and output
+        // Format and output (T005: pass debug_flag to format_hierarchy_table)
         let display_entries: Vec<_> = hierarchy_entries.into_iter().take(count).collect();
-        let output = format_hierarchy_table(&display_entries, &relations, use_color);
+        let output = format_hierarchy_table(&display_entries, &relations, use_color, debug_flag);
         print!("{}", output);
     } else {
         let display_entries: Vec<_> = entries.into_iter().take(count).collect();
@@ -171,6 +177,8 @@ fn print_help() {
     println!("    --targets, -t <N>... Filter by function name substrings");
     // T049: Document --hierarchy flag in help text
     println!("    --hierarchy, -H      Display call relationships between targets");
+    // T004: Document --debug flag in help text
+    println!("    --debug, -D          Show calculation path for hierarchy percentages");
     println!("    --no-color           Disable colored output");
     println!("    --help, -h           Show this help message");
     println!("    --version            Show version information");

@@ -499,3 +499,203 @@ fn test_top_command_hierarchy_real_data() {
         "Output should contain rd_optimize_transform"
     );
 }
+
+// ============================================================================
+// Feature 004: Debug Calculation Path Tests
+// ============================================================================
+
+// T010: Integration test for --hierarchy --debug with indirect call
+#[test]
+fn test_top_command_debug_with_hierarchy() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "--debug",
+            "--targets",
+            "rd_optimize",
+            "DCT4DBlock",
+            "inner_product",
+            "--no-color",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--hierarchy --debug should succeed: {}",
+        stderr
+    );
+
+    // Should contain direct call annotations
+    assert!(
+        stdout.contains("(direct:"),
+        "Output should contain direct call annotations"
+    );
+}
+
+// T016: Integration test for --hierarchy --debug showing indirect via annotation
+#[test]
+fn test_top_command_debug_indirect_via_annotation() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "--debug",
+            "--targets",
+            "rd_optimize",
+            "DCT4DBlock",
+            "inner_product",
+            "--no-color",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--hierarchy --debug should succeed: {}",
+        stderr
+    );
+
+    // Should contain indirect call annotations with "via"
+    assert!(
+        stdout.contains("(via "),
+        "Output should contain indirect call annotations with 'via'"
+    );
+}
+
+// T019: Integration test --debug without --hierarchy produces normal output
+#[test]
+fn test_top_command_debug_without_hierarchy() {
+    // Run with --debug but without --hierarchy
+    let debug_output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--debug",
+            "-n",
+            "5",
+            "--no-color",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    // Run without --debug (normal mode)
+    let normal_output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "5",
+            "--no-color",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let debug_stdout = String::from_utf8_lossy(&debug_output.stdout);
+    let normal_stdout = String::from_utf8_lossy(&normal_output.stdout);
+
+    assert!(
+        debug_output.status.success(),
+        "--debug without --hierarchy should succeed"
+    );
+    assert!(normal_output.status.success(), "Normal mode should succeed");
+
+    // Output should be identical
+    assert_eq!(
+        debug_stdout, normal_stdout,
+        "--debug without --hierarchy should produce identical output to normal mode"
+    );
+}
+
+// T024: Test --debug with --no-color shows plain text annotations
+#[test]
+fn test_top_command_debug_no_color() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "--debug",
+            "--no-color",
+            "--targets",
+            "rd_optimize",
+            "DCT4DBlock",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "--debug --no-color should succeed");
+
+    // Should have annotations without ANSI escape codes
+    assert!(
+        stdout.contains("(direct:") || stdout.contains("(via "),
+        "Output should contain annotations"
+    );
+    assert!(
+        !stdout.contains('\x1b'),
+        "Output should have no ANSI escape codes with --no-color"
+    );
+}
+
+// Integration test for --hierarchy --debug showing standalone annotations
+#[test]
+fn test_top_command_debug_standalone_annotations() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "--debug",
+            "--targets",
+            "rd_optimize",
+            "DCT4DBlock",
+            "--no-color",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--hierarchy --debug should succeed: {}",
+        stderr
+    );
+
+    // Should contain standalone annotations for entries with contributions
+    assert!(
+        stdout.contains("(standalone:"),
+        "Output should contain standalone annotations for adjusted entries"
+    );
+
+    // The standalone annotation should show the subtraction format
+    // e.g., "(standalone: X.XX% - Y.YY% (CallerName) = Z.ZZ%)"
+    assert!(
+        stdout.contains(" - ") && stdout.contains("(standalone:"),
+        "Standalone annotation should show subtraction"
+    );
+}
