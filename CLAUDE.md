@@ -123,3 +123,10 @@ The JPLM encoder spends ~90% of its time in the parallel block processing loop. 
 - **~7%** in data copying and block extraction
 
 The recursive `rd_optimize_transform` / `evaluate_split_for_partitions` pattern dominates the profile, suggesting the RD optimization algorithm itself is the primary compute bottleneck.
+
+## Active Technologies
+- Rust (latest stable, 2024 edition) + None (standard library only per constitution) (001-list-top-functions)
+- N/A (file-based input, stdout output) (001-list-top-functions)
+
+## Recent Changes
+- 001-list-top-functions: Added Rust (latest stable, 2024 edition) + None (standard library only per constitution)
