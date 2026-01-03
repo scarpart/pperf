@@ -56,7 +56,7 @@ A developer wants to control how many functions appear in the output, either exp
 
 ### User Story 4 - Filter by Function Names (Priority: P3)
 
-A developer wants to see statistics only for specific functions they are interested in, using full names or prefixes.
+A developer wants to see statistics only for specific functions they are interested in, using substring patterns (e.g., method names within class::method symbols).
 
 **Why this priority**: Targeted analysis of known functions speeds up performance investigation.
 
@@ -65,9 +65,9 @@ A developer wants to see statistics only for specific functions they are interes
 **Acceptance Scenarios**:
 
 1. **Given** a valid perf report file, **When** running `pperf top --targets "DCT4DBlock::DCT4DBlock" report.txt`, **Then** only exact matches are displayed
-2. **Given** a valid perf report file, **When** running `pperf top --targets DCT4D report.txt`, **Then** all functions with names starting with "DCT4D" are displayed
-3. **Given** multiple targets, **When** running `pperf top --targets DCT4D Hierarchical report.txt`, **Then** functions matching any target prefix are displayed
-4. **Given** a prefix matching multiple function signatures, **When** filtering, **Then** each matching signature is shown with a distinguishing suffix (e.g., `#1`, `#2`)
+2. **Given** a valid perf report file, **When** running `pperf top --targets get_mSubband report.txt`, **Then** all functions containing "get_mSubband" anywhere in their name are displayed (e.g., `Hierarchical4DEncoder::get_mSubbandLF_significance`)
+3. **Given** multiple targets, **When** running `pperf top --targets DCT4D get_mSubband report.txt`, **Then** functions matching any target substring are displayed
+4. **Given** a pattern matching multiple function signatures, **When** filtering, **Then** each matching signature is shown with a distinguishing suffix (e.g., `#1`, `#2`)
 5. **Given** a target with no matches, **When** running `pperf top --targets nonexistent report.txt`, **Then** output shows "No matching functions found"
 
 ---
@@ -95,9 +95,9 @@ A developer wants to see statistics only for specific functions they are interes
 - **FR-004**: System MUST support `--self` flag to sort by Self% instead
 - **FR-005**: System MUST default to displaying 10 results
 - **FR-006**: System MUST support `-n <number>` flag to change result count (positive integers only)
-- **FR-007**: System MUST support `--targets <name>...` to filter functions by name prefix
-- **FR-008**: System MUST match targets against function names using prefix matching
-- **FR-009**: System MUST display all matches when a prefix matches multiple signatures
+- **FR-007**: System MUST support `--targets <name>...` to filter functions by substring pattern
+- **FR-008**: System MUST match targets against function names using substring matching (pattern can appear anywhere in symbol name)
+- **FR-009**: System MUST display all matches when a pattern matches multiple signatures
 - **FR-010**: System MUST distinguish functions with identical base names by appending a numeric suffix (e.g., `#1`, `#2`)
 - **FR-011**: System MUST output results in a tabular format similar to `ls -l` (aligned columns, no borders)
 - **FR-012**: System MUST read perf report from a file path argument
@@ -107,7 +107,7 @@ A developer wants to see statistics only for specific functions they are interes
 
 - **PerfEntry**: A single function's profiling data containing Children%, Self%, Command, Shared Object, and Symbol
 - **PerfReport**: A collection of PerfEntries parsed from a perf report file
-- **FunctionFilter**: A mechanism to match function names by exact match or prefix
+- **FunctionFilter**: A mechanism to match function names by substring pattern
 
 ## Success Criteria *(mandatory)*
 

@@ -204,17 +204,18 @@ fn test_top_command_targets_filter() {
 #[test]
 fn test_top_command_targets_short_flag() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "-t", "std::", "perf-report.txt"])
+        .args(["run", "--", "top", "-t", "inner_product", "perf-report.txt"])
         .output()
         .expect("Failed to execute command");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
 
+    // Substring matching: all results should contain "inner_product"
     for line in stdout.lines().skip(1) {
         assert!(
-            line.contains("std::"),
-            "Filtered output should only contain std:: functions"
+            line.contains("inner_product"),
+            "Filtered output should only contain inner_product functions"
         );
     }
 }
@@ -227,8 +228,8 @@ fn test_top_command_targets_multiple() {
             "--",
             "top",
             "--targets",
-            "DCT4D",
-            "Block4D",
+            "DCT4DBlock::",
+            "get_mSubband",
             "perf-report.txt",
         ])
         .output()
@@ -237,10 +238,11 @@ fn test_top_command_targets_multiple() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
 
+    // Substring matching: each result should contain at least one pattern
     for line in stdout.lines().skip(1) {
         assert!(
-            line.contains("DCT4D") || line.contains("Block4D"),
-            "Filtered output should contain DCT4D or Block4D functions, got: {}",
+            line.contains("DCT4DBlock") || line.contains("get_mSubband"),
+            "Filtered output should contain DCT4DBlock or get_mSubband, got: {}",
             line
         );
     }
@@ -278,6 +280,34 @@ fn test_top_command_targets_no_matches() {
 }
 
 #[test]
+fn test_top_command_targets_substring_match() {
+    // Key test: substring matching allows matching method names within class::method symbols
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--targets",
+            "get_mSubband",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "Should find get_mSubband via substring match"
+    );
+
+    // Should match Hierarchical4DEncoder::get_mSubbandLF_significance
+    assert!(
+        stdout.contains("get_mSubband"),
+        "Should find function containing get_mSubband"
+    );
+}
+
+#[test]
 fn test_top_command_combined_flags() {
     let output = Command::new("cargo")
         .args([
@@ -288,7 +318,7 @@ fn test_top_command_combined_flags() {
             "-n",
             "3",
             "--targets",
-            "Block4D",
+            "get_mSubband",
             "perf-report.txt",
         ])
         .output()
@@ -304,8 +334,8 @@ fn test_top_command_combined_flags() {
 
     for line in &data_lines {
         assert!(
-            line.contains("Block4D"),
-            "Should only contain Block4D functions"
+            line.contains("get_mSubband"),
+            "Should only contain get_mSubband functions"
         );
     }
 }

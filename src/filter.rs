@@ -7,13 +7,13 @@ pub fn filter_entries(entries: &[PerfEntry], targets: &[String]) -> Vec<PerfEntr
 
     entries
         .iter()
-        .filter(|entry| targets.iter().any(|t| matches_prefix(&entry.symbol, t)))
+        .filter(|entry| targets.iter().any(|t| matches_pattern(&entry.symbol, t)))
         .cloned()
         .collect()
 }
 
-pub fn matches_prefix(symbol: &str, pattern: &str) -> bool {
-    symbol == pattern || symbol.starts_with(pattern)
+pub fn matches_pattern(symbol: &str, pattern: &str) -> bool {
+    symbol.contains(pattern)
 }
 
 #[cfg(test)]
@@ -21,20 +21,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_matches_prefix_exact() {
-        assert!(matches_prefix("DCT4DBlock", "DCT4DBlock"));
+    fn test_matches_pattern_exact() {
+        assert!(matches_pattern("DCT4DBlock", "DCT4DBlock"));
     }
 
     #[test]
-    fn test_matches_prefix_prefix_match() {
-        assert!(matches_prefix("DCT4DBlock::transform", "DCT4D"));
-        assert!(matches_prefix("std::inner_product", "std::"));
+    fn test_matches_pattern_prefix() {
+        assert!(matches_pattern("DCT4DBlock::transform", "DCT4D"));
+        assert!(matches_pattern("std::inner_product", "std::"));
     }
 
     #[test]
-    fn test_matches_prefix_no_match() {
-        assert!(!matches_prefix("Block4D", "DCT4D"));
-        assert!(!matches_prefix("transform", "DCT4D"));
+    fn test_matches_pattern_substring() {
+        // Key feature: match anywhere in the symbol
+        assert!(matches_pattern(
+            "Hierarchical4DEncoder::get_mSubband",
+            "get_mSubband"
+        ));
+        assert!(matches_pattern(
+            "std::inner_product<double>",
+            "inner_product"
+        ));
+        assert!(matches_pattern(
+            "Block4D::get_linear_position",
+            "linear_position"
+        ));
+    }
+
+    #[test]
+    fn test_matches_pattern_no_match() {
+        assert!(!matches_pattern("Block4D", "DCT4D"));
+        assert!(!matches_pattern("transform", "mSubband"));
     }
 
     #[test]

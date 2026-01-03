@@ -124,7 +124,7 @@ fn print_help() {
     println!("OPTIONS:");
     println!("    --self, -s           Sort by Self% instead of Children%");
     println!("    -n, --number <N>     Number of functions to display (default: 10)");
-    println!("    --targets, -t <N>... Filter by function name prefixes");
+    println!("    --targets, -t <N>... Filter by function name substrings");
     println!("    --help, -h           Show this help message");
     println!("    --version            Show version information");
 }
