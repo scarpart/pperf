@@ -234,8 +234,10 @@ pub fn simplify_symbol(symbol: &str) -> String {
     }
 
     // Apply transformations in order
+    // 0. Strip "auto " prefix (C++ return type deduction keyword)
+    let s = symbol.strip_prefix("auto ").unwrap_or(symbol);
     // 1. Collapse lambda first (before arguments are stripped)
-    let s = collapse_lambda(symbol);
+    let s = collapse_lambda(s);
     // 2. Strip return type
     let s = strip_return_type(&s);
     // 3. Strip template parameters

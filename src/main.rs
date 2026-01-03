@@ -1,9 +1,11 @@
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::process;
 
 use pperf::PperfError;
-use pperf::output::format_table;
+use pperf::hierarchy::{build_hierarchy_entries, compute_call_relations, parse_file_call_trees};
+use pperf::output::{format_hierarchy_table, format_table};
 use pperf::parser::{SortOrder, parse_file, sort_entries};
 use pperf::symbol::should_use_color;
 
@@ -39,6 +41,7 @@ fn main() {
             PperfError::InvalidFormat => 2,
             PperfError::InvalidCount => 3,
             PperfError::NoMatches => 4,
+            PperfError::HierarchyRequiresTargets => 3,
         };
         process::exit(exit_code);
     }
@@ -49,8 +52,9 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
     let mut count: usize = 10;
     let mut file_path: Option<&str> = None;
     let mut targets: Vec<String> = Vec::new();
-    // T044: Add --no-color flag parsing
     let mut no_color_flag = false;
+    // T044: Add --hierarchy flag parsing
+    let mut hierarchy_flag = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -58,9 +62,12 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
             "--self" | "-s" => {
                 sort_order = SortOrder::Self_;
             }
-            // T044: Parse --no-color flag
             "--no-color" => {
                 no_color_flag = true;
+            }
+            // T044: Parse --hierarchy / -H flag
+            "--hierarchy" | "-H" => {
+                hierarchy_flag = true;
             }
             "-n" | "--number" => {
                 i += 1;
@@ -95,8 +102,15 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
         i += 1;
     }
 
+    // T045: Validate --hierarchy requires --targets
+    if hierarchy_flag && targets.is_empty() {
+        return Err(PperfError::HierarchyRequiresTargets);
+    }
+
     let file_path = file_path.ok_or_else(|| {
-        eprintln!("Usage: pperf top [--self] [-n <count>] [--targets <names>...] <file>");
+        eprintln!(
+            "Usage: pperf top [--self] [-n <count>] [--targets <names>...] [--hierarchy] <file>"
+        );
         PperfError::InvalidCount
     })?;
 
@@ -112,12 +126,32 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
 
     sort_entries(&mut entries, sort_order);
 
-    // T046: Compute use_color based on TTY and --no-color flag
     let use_color = should_use_color(no_color_flag);
 
-    let display_entries: Vec<_> = entries.into_iter().take(count).collect();
-    let output = format_table(&display_entries, use_color);
-    print!("{}", output);
+    // T048: Wire hierarchy computation when --hierarchy is specified
+    if hierarchy_flag {
+        // Read file content for call tree parsing
+        let content = fs::read_to_string(path)
+            .map_err(|_| PperfError::FileNotFound(path.display().to_string()))?;
+
+        // Parse call trees from content
+        let trees = parse_file_call_trees(&content, &entries);
+
+        // Compute relationships between targets
+        let relations = compute_call_relations(&trees, &targets);
+
+        // Build hierarchy entries with adjusted percentages
+        let hierarchy_entries = build_hierarchy_entries(&entries, &targets, &relations);
+
+        // Format and output
+        let display_entries: Vec<_> = hierarchy_entries.into_iter().take(count).collect();
+        let output = format_hierarchy_table(&display_entries, &relations, use_color);
+        print!("{}", output);
+    } else {
+        let display_entries: Vec<_> = entries.into_iter().take(count).collect();
+        let output = format_table(&display_entries, use_color);
+        print!("{}", output);
+    }
 
     Ok(())
 }
@@ -135,7 +169,8 @@ fn print_help() {
     println!("    --self, -s           Sort by Self% instead of Children%");
     println!("    -n, --number <N>     Number of functions to display (default: 10)");
     println!("    --targets, -t <N>... Filter by function name substrings");
-    // T047: Document --no-color flag in help text
+    // T049: Document --hierarchy flag in help text
+    println!("    --hierarchy, -H      Display call relationships between targets");
     println!("    --no-color           Disable colored output");
     println!("    --help, -h           Show this help message");
     println!("    --version            Show version information");
