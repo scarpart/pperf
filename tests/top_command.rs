@@ -159,8 +159,9 @@ fn test_top_command_n_zero_error() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Invalid") || stderr.contains("count"),
-        "Error message should mention invalid count"
+        stderr.contains("invalid") || stderr.contains("number") || stderr.contains("at least 1"),
+        "Error message should mention invalid count: {}",
+        stderr
     );
 }
 
@@ -227,8 +228,9 @@ fn test_top_command_targets_multiple() {
             "run",
             "--",
             "top",
-            "--targets",
+            "-t",
             "DCT4DBlock::",
+            "-t",
             "get_mSubband",
             "perf-report.txt",
         ])
@@ -417,8 +419,9 @@ fn test_top_command_hierarchy_with_targets() {
             "--",
             "top",
             "--hierarchy",
-            "--targets",
+            "-t",
             "rd_optimize",
+            "-t",
             "DCT4D",
             "perf-report.txt",
         ])
@@ -475,8 +478,9 @@ fn test_top_command_hierarchy_real_data() {
             "--",
             "top",
             "--hierarchy",
-            "--targets",
+            "-t",
             "rd_optimize_transform",
+            "-t",
             "DCT4DBlock",
             "--no-color",
             "perf-report.txt",
@@ -514,9 +518,11 @@ fn test_top_command_debug_with_hierarchy() {
             "top",
             "--hierarchy",
             "--debug",
-            "--targets",
+            "-t",
             "rd_optimize",
+            "-t",
             "DCT4DBlock",
+            "-t",
             "inner_product",
             "--no-color",
             "perf-report.txt",
@@ -550,9 +556,11 @@ fn test_top_command_debug_indirect_via_annotation() {
             "top",
             "--hierarchy",
             "--debug",
-            "--targets",
+            "-t",
             "rd_optimize",
+            "-t",
             "DCT4DBlock",
+            "-t",
             "inner_product",
             "--no-color",
             "perf-report.txt",
@@ -635,8 +643,9 @@ fn test_top_command_debug_no_color() {
             "--hierarchy",
             "--debug",
             "--no-color",
-            "--targets",
+            "-t",
             "rd_optimize",
+            "-t",
             "DCT4DBlock",
             "perf-report.txt",
         ])
@@ -668,8 +677,9 @@ fn test_top_command_debug_standalone_annotations() {
             "top",
             "--hierarchy",
             "--debug",
-            "--targets",
+            "-t",
             "rd_optimize",
+            "-t",
             "DCT4DBlock",
             "--no-color",
             "perf-report.txt",
