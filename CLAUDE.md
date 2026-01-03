@@ -51,7 +51,11 @@ Children%   Self%  Function
 
 **Key concepts:**
 - **Relative %**: Callee's percentage of caller's time (shown indented)
-- **Adjusted %**: Original % minus contributions from callers (standalone entries)
+- **Adjusted %**: Original % minus contributions already shown under callers (standalone entries)
+- **Contribution calculation**: Groups all caller→callee relations by caller, takes MAX absolute_pct per caller (handles duplicate relations from different traversal contexts)
+- **Context-specific nesting**: When A→B→C are all targets, C is shown under B with path-specific percentages
+- **Remainder display**: Standalone entries show remainder callees (overall% - consumed%)
+- **Recursive handling**: For recursive functions (e.g., rd_optimize→rd_optimize), uses direct percentage from perf
 - **Deduplication**: Multiple entries with same simplified symbol → only first shown
 - **Depth calculation**: Based on column position of `--XX.XX%--` pattern (÷11)
 

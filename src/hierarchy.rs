@@ -38,10 +38,14 @@ pub struct CallRelation {
     pub caller: String,
     /// Callee target function (simplified name)
     pub callee: String,
-    /// Callee's contribution as % of caller's time
+    /// Callee's contribution as % of caller's time (in context if context_root is set)
     pub relative_pct: f64,
-    /// Absolute contribution: caller.children_pct × relative_pct / 100
+    /// Absolute contribution: root.children_pct × path_product / 100
     pub absolute_pct: f64,
+    /// If this relation was found in another caller's tree, store that root caller.
+    /// None = this is from the caller's own tree (overall relationship)
+    /// Some(root) = this is path-specific, found when traversing root's tree
+    pub context_root: Option<String>,
 }
 
 /// T005: Target function with computed hierarchy data for output.
@@ -324,65 +328,146 @@ pub fn find_target_in_tree(tree: &CallTreeNode, target: &str) -> bool {
     false
 }
 
-/// T028-T029: Find target callees under a caller, with recursion detection
-/// and percentage multiplication through intermediates.
+/// T028-T029: Find target callees under a caller, with context tracking.
+/// Now traverses INTO target subtrees to find path-specific percentages.
+///
+/// Parameters:
+/// - node: Current node in the call tree
+/// - targets: List of target function patterns
+/// - root_caller: The root caller we're traversing from (for context_root)
+/// - root_children_pct: Root caller's Children% (for absolute calculations)
+/// - target_stack: Stack of (target_symbol, cumulative_pct_to_target) for intermediate targets
+/// - cumulative_pct: Cumulative product of percentages from root to current node
+/// - seen: Set of targets already recorded (prevents duplicate recording)
+/// - inside_root_recursion: True if path only contains root caller recursive calls (no other intermediates)
 pub fn find_target_callees(
     node: &CallTreeNode,
     targets: &[String],
-    caller: &str,
-    caller_children_pct: f64,
+    root_caller: &str,
+    root_children_pct: f64,
+    target_stack: &mut Vec<(String, f64)>,
     cumulative_pct: f64,
     seen: &mut HashSet<String>,
+    inside_root_recursion: bool,
 ) -> Vec<CallRelation> {
     let mut relations = Vec::new();
+    let root_caller_simplified = simplify_symbol(root_caller);
 
     for child in &node.children {
         let child_pct = child.relative_pct;
-        let new_cumulative = cumulative_pct * child_pct / 100.0;
+
+        // Check if this child is a recursive call of the root caller
+        let is_root_recursion = child.symbol == root_caller_simplified;
+
+        // Track whether we're inside root-caller recursion
+        // If we encounter root caller again, restore to inside=true
+        // This handles: rd_optimize -> eval -> rd_optimize -> DCT4DBlock
+        // DCT4DBlock should use child_pct because it's direct child of rd_optimize
+        let still_inside_root_recursion = if is_root_recursion {
+            true // Re-entering root caller: restore to inside
+        } else {
+            false // Non-root intermediate: break the chain
+        };
+
+        // Calculate cumulative percentage
+        let new_cumulative = if is_root_recursion {
+            // For recursive calls of root caller, reset to child's percentage
+            child_pct
+        } else {
+            cumulative_pct * child_pct / 100.0
+        };
 
         // Check if this child matches any target
         let is_target = targets.iter().any(|t| child.symbol.contains(t));
 
         if is_target {
-            // Check for recursion - if already seen, traverse into it but don't record
+            // Check for recursion - if already seen, skip recording but continue traversing
             if seen.contains(&child.symbol) {
-                // Still traverse into this node to find deeper targets
+                // Continue traversing to find deeper targets
                 let deeper = find_target_callees(
                     child,
                     targets,
-                    caller,
-                    caller_children_pct,
+                    root_caller,
+                    root_children_pct,
+                    target_stack,
                     new_cumulative,
                     seen,
+                    still_inside_root_recursion,
                 );
                 relations.extend(deeper);
             } else {
                 // Record this relationship
-                // relative_pct is the percentage shown in the indented output
-                // absolute_pct is caller.children_pct × relative_pct / 100 (for adjusted %)
-                let relation = CallRelation {
-                    caller: caller.to_string(),
-                    callee: child.symbol.clone(),
-                    relative_pct: child_pct,
-                    absolute_pct: caller_children_pct * child_pct / 100.0,
-                };
-                relations.push(relation);
+                if target_stack.is_empty() {
+                    // Direct callee of root caller
+                    // Use child_pct when found through root caller recursion only
+                    // (e.g., rd_optimize -> rd_optimize -> DCT4DBlock)
+                    // Use cumulative when found through other intermediates
+                    // (e.g., DCT4DBlock -> do_4d_transform -> inner_product)
+                    let effective_pct = if inside_root_recursion {
+                        child_pct // Path through root recursion: use direct %
+                    } else {
+                        new_cumulative // Path through other intermediates: use cumulative
+                    };
+                    let relation = CallRelation {
+                        caller: root_caller.to_string(),
+                        callee: child.symbol.clone(),
+                        relative_pct: effective_pct,
+                        absolute_pct: root_children_pct * effective_pct / 100.0,
+                        context_root: None, // Direct from root, no context
+                    };
+                    relations.push(relation);
+                } else {
+                    // Callee under an intermediate target
+                    let (immediate_caller, caller_cumulative) = target_stack.last().unwrap();
+                    // Calculate relative % from immediate caller to this callee
+                    // new_cumulative is from root, caller_cumulative is from root to immediate caller
+                    let relative_to_caller = if *caller_cumulative > 0.0 {
+                        new_cumulative / caller_cumulative * 100.0
+                    } else {
+                        0.0
+                    };
+                    let relation = CallRelation {
+                        caller: immediate_caller.clone(),
+                        callee: child.symbol.clone(),
+                        relative_pct: relative_to_caller,
+                        absolute_pct: root_children_pct * new_cumulative / 100.0,
+                        context_root: Some(root_caller.to_string()),
+                    };
+                    relations.push(relation);
+                }
 
-                // Mark as seen to prevent recording again
+                // Mark as seen to prevent recording duplicate relations
                 seen.insert(child.symbol.clone());
 
-                // Don't traverse deeper into this target's subtree
-                // (they'll have their own top-level entry)
+                // Push this target onto the stack and continue traversing its subtree
+                // When entering a target's subtree, reset inside_root_recursion to true
+                // (we start fresh tracking for the new caller)
+                target_stack.push((child.symbol.clone(), new_cumulative));
+                let deeper = find_target_callees(
+                    child,
+                    targets,
+                    root_caller,
+                    root_children_pct,
+                    target_stack,
+                    new_cumulative,
+                    seen,
+                    true, // Reset: entering target's own subtree
+                );
+                relations.extend(deeper);
+                target_stack.pop();
             }
         } else {
             // Not a target, continue traversing
+            // Pass still_inside_root_recursion - becomes false if we went through non-root intermediate
             let deeper = find_target_callees(
                 child,
                 targets,
-                caller,
-                caller_children_pct,
+                root_caller,
+                root_children_pct,
+                target_stack,
                 new_cumulative,
                 seen,
+                still_inside_root_recursion,
             );
             relations.extend(deeper);
         }
@@ -402,6 +487,7 @@ fn is_leaf_function(entry: &PerfEntry) -> bool {
 }
 
 /// T030: Compute all call relations between targets.
+/// Now returns both direct relations and context-specific nested relations.
 pub fn compute_call_relations(
     trees: &[(PerfEntry, Vec<CallTreeNode>)],
     targets: &[String],
@@ -418,18 +504,21 @@ pub fn compute_call_relations(
                 continue;
             }
 
-            // This entry is a caller, look for callees
+            // This entry is a caller, look for callees (including nested ones)
             for root in tree_roots {
                 let mut seen = HashSet::new();
                 seen.insert(entry.symbol.clone()); // Prevent self-recursion
+                let mut target_stack = Vec::new(); // Track intermediate targets
 
                 let relations = find_target_callees(
                     root,
                     targets,
                     &entry.symbol,
                     entry.children_pct,
+                    &mut target_stack,
                     100.0, // Start at 100% of caller's time
                     &mut seen,
+                    true, // Start inside root caller's "recursion zone"
                 );
                 all_relations.extend(relations);
             }
@@ -481,13 +570,14 @@ pub fn build_hierarchy_entries(
             continue;
         }
 
-        // Find callees for this entry (use contains for matching simplified symbols)
+        // Find OVERALL callees for this entry (context_root = None means from entry's own tree)
+        // These are used for standalone display and remainder calculations
         // Deduplicate by callee symbol, keeping only unique callees
         let mut callees: Vec<CallRelation> = Vec::new();
         let mut seen_callees: HashSet<String> = HashSet::new();
         for r in relations
             .iter()
-            .filter(|r| entry.symbol.contains(&r.caller))
+            .filter(|r| entry.symbol.contains(&r.caller) && r.context_root.is_none())
         {
             if !seen_callees.contains(&r.callee) {
                 seen_callees.insert(r.callee.clone());
@@ -496,20 +586,19 @@ pub fn build_hierarchy_entries(
         }
 
         // Find contributions TO this entry (when it's a callee)
-        // Only count contributions once per unique caller
-        let mut contribution_callers: HashSet<String> = HashSet::new();
-        let contributions: Vec<f64> = relations
-            .iter()
-            .filter(|r| {
-                if entry.symbol.contains(&r.callee) && !contribution_callers.contains(&r.caller) {
-                    contribution_callers.insert(r.caller.clone());
-                    true
-                } else {
-                    false
+        // Group by caller and take MAX absolute_pct per caller
+        // (same caller->callee pair may appear multiple times from different contexts)
+        let mut contribution_by_caller: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
+        for r in relations.iter() {
+            if simplified == r.callee {
+                let entry = contribution_by_caller.entry(r.caller.clone()).or_insert(0.0);
+                if r.absolute_pct > *entry {
+                    *entry = r.absolute_pct;
                 }
-            })
-            .map(|r| r.absolute_pct)
-            .collect();
+            }
+        }
+        let contributions: Vec<f64> = contribution_by_caller.values().copied().collect();
 
         let adjusted = compute_adjusted_percentage(entry.children_pct, &contributions);
 

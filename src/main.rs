@@ -145,7 +145,7 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
 
         // Format and output
         let display_entries: Vec<_> = hierarchy_entries.into_iter().take(count).collect();
-        let output = format_hierarchy_table(&display_entries, use_color);
+        let output = format_hierarchy_table(&display_entries, &relations, use_color);
         print!("{}", output);
     } else {
         let display_entries: Vec<_> = entries.into_iter().take(count).collect();
