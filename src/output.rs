@@ -1,14 +1,18 @@
 use crate::parser::PerfEntry;
+use crate::symbol::format_colored_symbol;
 
-pub fn format_table(entries: &[PerfEntry]) -> String {
+/// T021: Format table with optional color support
+pub fn format_table(entries: &[PerfEntry], use_color: bool) -> String {
     let mut output = String::new();
     output.push_str("Children%   Self%  Function\n");
 
     for entry in entries {
         let symbol = truncate_symbol(&entry.symbol, 100);
+        // T022: Apply colors to each entry's symbol
+        let colored_symbol = format_colored_symbol(&symbol, use_color);
         output.push_str(&format!(
             "{:>8.2}  {:>6.2}  {}\n",
-            entry.children_pct, entry.self_pct, symbol
+            entry.children_pct, entry.self_pct, colored_symbol
         ));
     }
 
@@ -47,7 +51,7 @@ mod tests {
             },
         ];
 
-        let output = super::format_table(&entries);
+        let output = super::format_table(&entries, false);
 
         let lines: Vec<&str> = output.lines().collect();
         assert!(!lines.is_empty(), "Output should not be empty");

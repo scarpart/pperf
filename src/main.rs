@@ -5,6 +5,7 @@ use std::process;
 use pperf::PperfError;
 use pperf::output::format_table;
 use pperf::parser::{SortOrder, parse_file, sort_entries};
+use pperf::symbol::should_use_color;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -48,12 +49,18 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
     let mut count: usize = 10;
     let mut file_path: Option<&str> = None;
     let mut targets: Vec<String> = Vec::new();
+    // T044: Add --no-color flag parsing
+    let mut no_color_flag = false;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--self" | "-s" => {
                 sort_order = SortOrder::Self_;
+            }
+            // T044: Parse --no-color flag
+            "--no-color" => {
+                no_color_flag = true;
             }
             "-n" | "--number" => {
                 i += 1;
@@ -105,8 +112,11 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
 
     sort_entries(&mut entries, sort_order);
 
+    // T046: Compute use_color based on TTY and --no-color flag
+    let use_color = should_use_color(no_color_flag);
+
     let display_entries: Vec<_> = entries.into_iter().take(count).collect();
-    let output = format_table(&display_entries);
+    let output = format_table(&display_entries, use_color);
     print!("{}", output);
 
     Ok(())
@@ -125,6 +135,8 @@ fn print_help() {
     println!("    --self, -s           Sort by Self% instead of Children%");
     println!("    -n, --number <N>     Number of functions to display (default: 10)");
     println!("    --targets, -t <N>... Filter by function name substrings");
+    // T047: Document --no-color flag in help text
+    println!("    --no-color           Disable colored output");
     println!("    --help, -h           Show this help message");
     println!("    --version            Show version information");
 }
