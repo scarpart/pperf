@@ -1,50 +1,132 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+  Sync Impact Report
+  ==================
+  Version change: 0.0.0 → 1.0.0 (initial ratification)
+
+  Added principles:
+  - I. Test-First Development (NON-NEGOTIABLE)
+  - II. Simplicity-First Design
+  - III. Real Data Validation
+  - IV. Incremental Feature Development
+
+  Added sections:
+  - Technology Stack (Rust-specific constraints)
+  - Development Workflow (TDD cycle specification)
+
+  Templates requiring updates:
+  - .specify/templates/plan-template.md ✅ (already aligned with TDD gates)
+  - .specify/templates/spec-template.md ✅ (already aligned with testable scenarios)
+  - .specify/templates/tasks-template.md ✅ (already specifies test-before-implement)
+
+  Follow-up TODOs: None
+-->
+
+# pperf Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Test-First Development (NON-NEGOTIABLE)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Every feature MUST follow the TDD Red-Green-Refactor cycle without exception:
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+1. **Red**: Write tests that define the expected behavior BEFORE any implementation
+2. **Green**: Implement the minimal code to make tests pass
+3. **Refactor**: Clean up while keeping tests green
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+This principle is absolute. No feature code may be written until its tests exist and fail.
+The Rust compiler provides compile-time guarantees; tests provide runtime correctness guarantees.
+Both are required.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Simplicity-First Design
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Code MUST be as simple as possible while meeting requirements:
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- Avoid abstractions until repetition proves their necessity
+- Prefer explicit code over clever code
+- Omit comments unless the logic is genuinely non-obvious
+- Delete unused code rather than commenting it out
+- Reject premature optimization
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Rust's type system already documents intent; additional comments are noise unless clarifying
+complex algorithms or non-obvious invariants.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### III. Real Data Validation
+
+All features MUST be validated against actual `perf report` output:
+
+- The repository contains real perf-report.txt samples from JPLM encoder profiling
+- Tests MUST verify claims about parsed data against these real samples
+- Edge cases discovered in real data MUST be encoded as test cases
+- Parser behavior MUST match observed perf report format variations
+
+Synthetic test data alone is insufficient. Real-world data exposes format quirks and edge cases
+that synthetic data misses.
+
+### IV. Incremental Feature Development
+
+Features are specified and implemented one at a time:
+
+- Each feature has a clear, testable scope
+- A feature is complete only when its tests pass against real data
+- New features build on proven foundations
+- Scope creep within a feature MUST be rejected; new capabilities become new features
+
+## Technology Stack
+
+**Language**: Rust (latest stable)
+
+Rust is chosen for:
+- Compile-time safety guarantees reducing runtime bugs
+- Strong type system enabling self-documenting code
+- Pattern matching well-suited for parsing structured text
+- Zero-cost abstractions when performance matters
+
+**Testing**: `cargo test`
+
+All tests run via the standard Rust test framework. Integration tests may use real
+perf-report.txt files checked into the repository.
+
+**No external dependencies** unless explicitly justified by a specific feature requirement.
+Standard library suffices for text parsing and basic I/O.
+
+## Development Workflow
+
+### TDD Cycle (Mandatory)
+
+```
+1. Understand the feature requirement
+2. Write failing tests (cargo test → RED)
+3. Verify tests fail for the right reason
+4. Implement minimal passing code (cargo test → GREEN)
+5. Refactor for clarity (cargo test → still GREEN)
+6. Commit
+```
+
+### Feature Integration Checklist
+
+Before a feature is considered complete:
+
+- [ ] All tests pass (`cargo test`)
+- [ ] Tests validate against real perf-report.txt samples
+- [ ] No compiler warnings (`cargo build` clean)
+- [ ] Code formatted (`cargo fmt`)
+- [ ] Lints pass (`cargo clippy`)
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices for this project.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Amendments** require:
+1. Written justification for the change
+2. Update to this file with new version number
+3. Propagation of changes to dependent templates
+
+**Versioning**:
+- MAJOR: Principle added, removed, or fundamentally redefined
+- MINOR: Clarification that changes expected behavior
+- PATCH: Typo fixes, formatting, non-semantic edits
+
+**Compliance**: Every PR and code review MUST verify adherence to these principles.
+Non-compliance is grounds for rejection regardless of code quality.
+
+**Version**: 1.0.0 | **Ratified**: 2026-01-02 | **Last Amended**: 2026-01-02
