@@ -11,14 +11,14 @@ pperf top perf-report.txt
 # Sort by Self% instead
 pperf top --self perf-report.txt
 
-# Filter to specific functions
-pperf top --targets rd_optimize DCT4D perf-report.txt
+# Filter to specific functions (use -t for each target)
+pperf top -t rd_optimize -t DCT4D perf-report.txt
 
 # Show call hierarchy between targets
-pperf top --hierarchy --targets rd_optimize_transform DCT4DBlock perf-report.txt
+pperf top --hierarchy -t rd_optimize_transform -t DCT4DBlock perf-report.txt
 
 # Debug mode - show calculation path breakdown
-pperf top --hierarchy --debug --targets rd_optimize DCT4DBlock inner_product perf-report.txt
+pperf top --hierarchy --debug -t rd_optimize -t DCT4DBlock -t inner_product perf-report.txt
 ```
 
 ## Architecture
@@ -99,7 +99,7 @@ The `hierarchy.rs` module parses these call trees and discovers relationships be
 |--------|-------|-------------|
 | `--self` | `-s` | Sort by Self% instead of Children% |
 | `--number <N>` | `-n` | Limit output to N entries (default: 10) |
-| `--targets <names>...` | `-t` | Filter to functions matching substrings |
+| `--targets <name>` | `-t` | Filter to functions matching substring (repeatable) |
 | `--hierarchy` | `-H` | Show call relationships between targets |
 | `--debug` | `-D` | Show calculation path annotations (requires `--hierarchy`) |
 | `--no-color` | | Disable ANSI color output |
@@ -114,10 +114,11 @@ cargo test
 cargo clippy
 ```
 
-**Constraints**: Standard library only (no external dependencies per constitution).
+**Dependencies**: clap v4 (with derive feature) for CLI argument parsing.
 
 ## Active Technologies
-- Rust (stable, standard library only per constitution)
+- Rust (stable, edition 2024)
+- clap v4 (derive feature) for CLI parsing
 - N/A (CLI tool, no persistent storage)
 
 ## Features Implemented
@@ -125,3 +126,4 @@ cargo clippy
 - **002**: Symbol simplification and colored output
 - **003**: Call hierarchy display with `--hierarchy` flag
 - **004**: Debug calculation path with `--debug` flag (shows percentage derivation annotations)
+- **005**: Clap CLI refactor - replaced ad-hoc argument parsing with Clap derive macros

@@ -1,7 +1,8 @@
-use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::process;
+
+use clap::{Args, Parser, Subcommand};
 
 use pperf::PperfError;
 use pperf::hierarchy::{build_hierarchy_entries, compute_call_relations, parse_file_call_trees};
@@ -9,29 +10,75 @@ use pperf::output::{format_hierarchy_table, format_table};
 use pperf::parser::{SortOrder, parse_file, sort_entries};
 use pperf::symbol::should_use_color;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        eprintln!("Usage: pperf <subcommand> [options] <file>");
-        eprintln!("Subcommands: top");
-        process::exit(3);
+/// Parse count argument, ensuring it's >= 1
+fn parse_count(s: &str) -> Result<usize, String> {
+    let count: usize = s
+        .parse()
+        .map_err(|_| format!("'{}' is not a valid number", s))?;
+    if count == 0 {
+        Err("number must be at least 1".to_string())
+    } else {
+        Ok(count)
     }
+}
 
-    let result = match args[1].as_str() {
-        "top" => run_top(&args[2..]),
-        "--help" | "-h" => {
-            print_help();
-            Ok(())
+/// Perf report analyzer
+#[derive(Parser)]
+#[command(name = "pperf", version, about)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Display top functions by CPU time
+    Top(TopArgs),
+}
+
+#[derive(Args)]
+struct TopArgs {
+    /// Sort by Self% instead of Children%
+    #[arg(short = 's', long = "self")]
+    sort_self: bool,
+
+    /// Number of functions to display
+    #[arg(short = 'n', long = "number", default_value = "10", value_parser = parse_count)]
+    number: usize,
+
+    /// Filter by function name substrings (repeatable: -t val1 -t val2)
+    #[arg(short = 't', long = "targets")]
+    targets: Vec<String>,
+
+    /// Display call relationships between targets
+    #[arg(short = 'H', long = "hierarchy")]
+    hierarchy: bool,
+
+    /// Show calculation path for hierarchy percentages
+    #[arg(short = 'D', long = "debug")]
+    debug: bool,
+
+    /// Disable colored output
+    #[arg(long = "no-color")]
+    no_color: bool,
+
+    /// Perf report file to analyze
+    file: PathBuf,
+}
+
+fn main() {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            e.print().expect("Failed to print error");
+            // Use Clap's exit code for help/version (0), otherwise use 3 for arg errors
+            let exit_code = if e.use_stderr() { 3 } else { 0 };
+            process::exit(exit_code);
         }
-        "--version" => {
-            println!("pperf 0.1.0");
-            Ok(())
-        }
-        _ => {
-            eprintln!("Unknown subcommand: {}", args[1]);
-            process::exit(3);
-        }
+    };
+
+    let result = match cli.command {
+        Commands::Top(args) => run_top(args),
     };
 
     if let Err(e) = result {
@@ -47,80 +94,25 @@ fn main() {
     }
 }
 
-fn run_top(args: &[String]) -> Result<(), PperfError> {
-    let mut sort_order = SortOrder::Children;
-    let mut count: usize = 10;
-    let mut file_path: Option<&str> = None;
-    let mut targets: Vec<String> = Vec::new();
-    let mut no_color_flag = false;
-    // T044: Add --hierarchy flag parsing
-    let mut hierarchy_flag = false;
-    // T004: Add --debug flag parsing
-    let mut debug_flag = false;
+fn run_top(args: TopArgs) -> Result<(), PperfError> {
+    // Map Clap args to existing variable names
+    let sort_order = if args.sort_self {
+        SortOrder::Self_
+    } else {
+        SortOrder::Children
+    };
+    let count = args.number;
+    let targets = args.targets;
+    let hierarchy_flag = args.hierarchy;
+    let debug_flag = args.debug;
+    let no_color_flag = args.no_color;
 
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--self" | "-s" => {
-                sort_order = SortOrder::Self_;
-            }
-            "--no-color" => {
-                no_color_flag = true;
-            }
-            // T044: Parse --hierarchy / -H flag
-            "--hierarchy" | "-H" => {
-                hierarchy_flag = true;
-            }
-            // T004: Parse --debug / -D flag
-            "--debug" | "-D" => {
-                debug_flag = true;
-            }
-            "-n" | "--number" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(PperfError::InvalidCount);
-                }
-                count = args[i].parse().map_err(|_| PperfError::InvalidCount)?;
-                if count == 0 {
-                    return Err(PperfError::InvalidCount);
-                }
-            }
-            "-t" | "--targets" => {
-                i += 1;
-                while i < args.len() && !args[i].starts_with('-') {
-                    if Path::new(&args[i]).exists() {
-                        file_path = Some(&args[i]);
-                        break;
-                    }
-                    targets.push(args[i].clone());
-                    i += 1;
-                }
-                continue;
-            }
-            arg if arg.starts_with('-') => {
-                eprintln!("Unknown option: {}", arg);
-                return Err(PperfError::InvalidCount);
-            }
-            _ => {
-                file_path = Some(&args[i]);
-            }
-        }
-        i += 1;
-    }
-
-    // T045: Validate --hierarchy requires --targets
+    // Validate --hierarchy requires --targets
     if hierarchy_flag && targets.is_empty() {
         return Err(PperfError::HierarchyRequiresTargets);
     }
 
-    let file_path = file_path.ok_or_else(|| {
-        eprintln!(
-            "Usage: pperf top [--self] [-n <count>] [--targets <names>...] [--hierarchy] <file>"
-        );
-        PperfError::InvalidCount
-    })?;
-
-    let path = Path::new(file_path);
+    let path = &args.file;
     let mut entries = parse_file(path)?;
 
     if !targets.is_empty() {
@@ -160,26 +152,4 @@ fn run_top(args: &[String]) -> Result<(), PperfError> {
     }
 
     Ok(())
-}
-
-fn print_help() {
-    println!("pperf - Perf report analyzer");
-    println!();
-    println!("USAGE:");
-    println!("    pperf <SUBCOMMAND> [OPTIONS] <FILE>");
-    println!();
-    println!("SUBCOMMANDS:");
-    println!("    top     Display top functions by CPU time");
-    println!();
-    println!("OPTIONS:");
-    println!("    --self, -s           Sort by Self% instead of Children%");
-    println!("    -n, --number <N>     Number of functions to display (default: 10)");
-    println!("    --targets, -t <N>... Filter by function name substrings");
-    // T049: Document --hierarchy flag in help text
-    println!("    --hierarchy, -H      Display call relationships between targets");
-    // T004: Document --debug flag in help text
-    println!("    --debug, -D          Show calculation path for hierarchy percentages");
-    println!("    --no-color           Disable colored output");
-    println!("    --help, -h           Show this help message");
-    println!("    --version            Show version information");
 }
