@@ -60,13 +60,26 @@ pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> St
         }
     }
 
+    // Collect all callees (entries that are called by other targets)
+    // These are NOT root callers even if they have their own callees
+    let all_callees: HashSet<String> = entries
+        .iter()
+        .flat_map(|e| e.callees.iter().map(|c| c.callee.clone()))
+        .collect();
+
     // Track consumed caller→callee pairs (displayed under a parent)
     let mut consumed: HashSet<(String, String)> = HashSet::new();
 
-    // First pass: display root callers with their nested callees
+    // First pass: display ROOT callers only (callers that are NOT callees of other targets)
     for entry in entries {
         if !entry.is_caller {
             continue; // Skip non-callers in first pass
+        }
+
+        // Skip if this entry is itself a callee of another target (not a root caller)
+        let simplified = simplify_symbol(&entry.symbol);
+        if all_callees.contains(&simplified) {
+            continue;
         }
 
         // Display root caller
@@ -94,53 +107,49 @@ pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> St
         );
     }
 
-    // Second pass: display standalone entries (not callers, or callers with remaining callees)
+    // Second pass: display standalone entries
+    // - Root callers were shown in first pass, skip them here
+    // - Intermediate callers (callees that also have callees): show with adjusted %, no nested callees if consumed
+    // - Pure callees (no callees of their own): show with adjusted %
     for entry in entries {
+        // Skip entries that were shown as root callers in first pass
+        let simplified = simplify_symbol(&entry.symbol);
+        let is_root_caller = entry.is_caller && !all_callees.contains(&simplified);
+        if is_root_caller {
+            continue; // Already shown in first pass
+        }
+
+        // Show this entry with adjusted percentage
+        let symbol = truncate_symbol(&entry.symbol, 100);
+        let colored_symbol = format_colored_symbol(&symbol, use_color);
+        output.push_str(&format!(
+            "{:>8.2}  {:>6.2}  {}\n",
+            entry.adjusted_children_pct, entry.original_self_pct, colored_symbol
+        ));
+
+        // If this is a caller, show any unconsumed callees
         if entry.is_caller {
-            // Check if all its callees were consumed
-            let all_consumed = entry
+            let has_unconsumed = entry
                 .callees
                 .iter()
-                .all(|c| consumed.contains(&(entry.symbol.clone(), c.callee.clone())));
-            if all_consumed {
-                continue; // Skip, all relationships already shown
-            }
-            // Show as standalone with any unconsumed callees
-            let symbol = truncate_symbol(&entry.symbol, 100);
-            let colored_symbol = format_colored_symbol(&symbol, use_color);
-            output.push_str(&format!(
-                "{:>8.2}  {:>6.2}  {}\n",
-                entry.adjusted_children_pct, entry.original_self_pct, colored_symbol
-            ));
+                .any(|c| !consumed.contains(&(entry.symbol.clone(), c.callee.clone())));
 
-            // Track visited callees to prevent infinite recursion (using simplified symbols)
-            let mut visited: HashSet<String> = HashSet::new();
-            visited.insert(simplify_symbol(&entry.symbol));
+            if has_unconsumed {
+                // Track visited callees to prevent infinite recursion (using simplified symbols)
+                let mut visited: HashSet<String> = HashSet::new();
+                visited.insert(simplify_symbol(&entry.symbol));
 
-            // Show only unconsumed callees
-            for callee in &entry.callees {
-                if !consumed.contains(&(entry.symbol.clone(), callee.callee.clone())) {
-                    display_callees_recursive(
-                        &entry.symbol,
-                        &callee_map,
-                        &callee_to_entry,
-                        &mut consumed,
-                        &mut visited,
-                        &mut output,
-                        1,
-                        use_color,
-                    );
-                    break; // Only need to call once, it handles all
-                }
+                display_callees_recursive(
+                    &entry.symbol,
+                    &callee_map,
+                    &callee_to_entry,
+                    &mut consumed,
+                    &mut visited,
+                    &mut output,
+                    1,
+                    use_color,
+                );
             }
-        } else {
-            // Pure standalone (not a caller)
-            let symbol = truncate_symbol(&entry.symbol, 100);
-            let colored_symbol = format_colored_symbol(&symbol, use_color);
-            output.push_str(&format!(
-                "{:>8.2}  {:>6.2}  {}\n",
-                entry.adjusted_children_pct, entry.original_self_pct, colored_symbol
-            ));
         }
     }
 
