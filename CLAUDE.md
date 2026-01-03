@@ -16,6 +16,9 @@ pperf top --targets rd_optimize DCT4D perf-report.txt
 
 # Show call hierarchy between targets
 pperf top --hierarchy --targets rd_optimize_transform DCT4DBlock perf-report.txt
+
+# Debug mode - show calculation path breakdown
+pperf top --hierarchy --debug --targets rd_optimize DCT4DBlock inner_product perf-report.txt
 ```
 
 ## Architecture
@@ -59,6 +62,26 @@ Children%   Self%  Function
 - **Deduplication**: Multiple entries with same simplified symbol → only first shown
 - **Depth calculation**: Based on column position of `--XX.XX%--` pattern (÷11)
 
+### Debug Mode (`--debug` flag)
+Shows calculation path annotations for hierarchy percentages:
+- **Direct calls**: `(direct: 17.23%)` - shown on gray line below direct caller→callee entries
+- **Indirect calls**: `(via do_4d_transform 4.98% = 0.07%)` - shows intermediary chain for calls that traverse non-target functions
+- **Standalone entries**: `(standalone: 38.00% - 12.37% (rd_optimize_transform) = 25.63%)` - shows subtraction breakdown for adjusted percentages
+- Only active when combined with `--hierarchy`; has no effect in normal mode
+- Annotations rendered in gray (DIM) color when color output is enabled
+
+Example with `--debug`:
+```
+Children%   Self%  Function
+   71.80    0.00  TransformPartition::rd_optimize_transform
+   17.23    0.00      DCT4DBlock::DCT4DBlock
+                      (direct: 17.23%)
+    0.07    0.00          std::inner_product
+                          (via Transformed4DBlock::do_4d_transform 4.98% = 0.07%)
+   25.92    0.00  DCT4DBlock::DCT4DBlock
+                  (standalone: 38.29% - 12.37% (TransformPartition::rd_optimize_transform) = 25.92%)
+```
+
 ## Perf Report Format
 
 Perf reports have top-level entries with call trees:
@@ -70,6 +93,19 @@ Perf reports have top-level entries with call trees:
 
 The `hierarchy.rs` module parses these call trees and discovers relationships between target functions, handling recursive calls and intermediate (non-target) functions.
 
+## CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--self` | `-s` | Sort by Self% instead of Children% |
+| `--number <N>` | `-n` | Limit output to N entries (default: 10) |
+| `--targets <names>...` | `-t` | Filter to functions matching substrings |
+| `--hierarchy` | `-H` | Show call relationships between targets |
+| `--debug` | `-D` | Show calculation path annotations (requires `--hierarchy`) |
+| `--no-color` | | Disable ANSI color output |
+| `--help` | `-h` | Show help message |
+| `--version` | | Show version |
+
 ## Development
 
 ```bash
@@ -79,3 +115,13 @@ cargo clippy
 ```
 
 **Constraints**: Standard library only (no external dependencies per constitution).
+
+## Active Technologies
+- Rust (stable, standard library only per constitution)
+- N/A (CLI tool, no persistent storage)
+
+## Features Implemented
+- **001**: Basic perf report parsing and table output
+- **002**: Symbol simplification and colored output
+- **003**: Call hierarchy display with `--hierarchy` flag
+- **004**: Debug calculation path with `--debug` flag (shows percentage derivation annotations)

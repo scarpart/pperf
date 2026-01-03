@@ -31,6 +31,26 @@ pub struct CallTreeNode {
     pub children: Vec<CallTreeNode>,
 }
 
+/// Represents one step in the intermediary path between caller and callee.
+/// Used to show the calculation breakdown in debug mode.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntermediaryStep {
+    /// Simplified function name of the intermediary
+    pub symbol: String,
+    /// Relative percentage at this step in the call chain
+    pub percentage: f64,
+}
+
+/// Represents one caller's contribution to a standalone entry's adjusted percentage.
+/// Used to show the subtraction breakdown in debug mode.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallerContribution {
+    /// Simplified name of the calling target function
+    pub caller: String,
+    /// The contribution amount (absolute %) subtracted from original
+    pub absolute_pct: f64,
+}
+
 /// T004: Represents a caller→callee relationship between two target functions.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallRelation {
@@ -46,6 +66,9 @@ pub struct CallRelation {
     /// None = this is from the caller's own tree (overall relationship)
     /// Some(root) = this is path-specific, found when traversing root's tree
     pub context_root: Option<String>,
+    /// Ordered list of non-target functions traversed between caller and callee.
+    /// Empty if this is a direct call (no intermediaries).
+    pub intermediary_path: Vec<IntermediaryStep>,
 }
 
 /// T005: Target function with computed hierarchy data for output.
@@ -63,6 +86,8 @@ pub struct HierarchyEntry {
     pub callees: Vec<CallRelation>,
     /// True if this function has targeted callees
     pub is_caller: bool,
+    /// Breakdown of contributions FROM callers that were subtracted (for debug mode)
+    pub contributions: Vec<CallerContribution>,
 }
 
 // ============================================================================
@@ -330,6 +355,7 @@ pub fn find_target_in_tree(tree: &CallTreeNode, target: &str) -> bool {
 
 /// T028-T029: Find target callees under a caller, with context tracking.
 /// Now traverses INTO target subtrees to find path-specific percentages.
+/// T011: Now also tracks intermediary_path for debug annotations.
 ///
 /// Parameters:
 /// - node: Current node in the call tree
@@ -340,6 +366,8 @@ pub fn find_target_in_tree(tree: &CallTreeNode, target: &str) -> bool {
 /// - cumulative_pct: Cumulative product of percentages from root to current node
 /// - seen: Set of targets already recorded (prevents duplicate recording)
 /// - inside_root_recursion: True if path only contains root caller recursive calls (no other intermediates)
+/// - current_path: Accumulator for non-target intermediary functions traversed
+#[allow(clippy::too_many_arguments)]
 pub fn find_target_callees(
     node: &CallTreeNode,
     targets: &[String],
@@ -349,6 +377,7 @@ pub fn find_target_callees(
     cumulative_pct: f64,
     seen: &mut HashSet<String>,
     inside_root_recursion: bool,
+    current_path: &mut Vec<IntermediaryStep>,
 ) -> Vec<CallRelation> {
     let mut relations = Vec::new();
     let root_caller_simplified = simplify_symbol(root_caller);
@@ -384,6 +413,8 @@ pub fn find_target_callees(
             // Check for recursion - if already seen, skip recording but continue traversing
             if seen.contains(&child.symbol) {
                 // Continue traversing to find deeper targets
+                // Clear path when entering already-seen target's subtree
+                let mut fresh_path = Vec::new();
                 let deeper = find_target_callees(
                     child,
                     targets,
@@ -393,6 +424,7 @@ pub fn find_target_callees(
                     new_cumulative,
                     seen,
                     still_inside_root_recursion,
+                    &mut fresh_path,
                 );
                 relations.extend(deeper);
             } else {
@@ -414,6 +446,7 @@ pub fn find_target_callees(
                         relative_pct: effective_pct,
                         absolute_pct: root_children_pct * effective_pct / 100.0,
                         context_root: None, // Direct from root, no context
+                        intermediary_path: current_path.clone(), // T011: Include accumulated path
                     };
                     relations.push(relation);
                 } else {
@@ -432,6 +465,7 @@ pub fn find_target_callees(
                         relative_pct: relative_to_caller,
                         absolute_pct: root_children_pct * new_cumulative / 100.0,
                         context_root: Some(root_caller.to_string()),
+                        intermediary_path: current_path.clone(), // T011: Include accumulated path
                     };
                     relations.push(relation);
                 }
@@ -442,7 +476,9 @@ pub fn find_target_callees(
                 // Push this target onto the stack and continue traversing its subtree
                 // When entering a target's subtree, reset inside_root_recursion to true
                 // (we start fresh tracking for the new caller)
+                // T011: Clear path when entering target's subtree (new caller context)
                 target_stack.push((child.symbol.clone(), new_cumulative));
+                let mut fresh_path = Vec::new();
                 let deeper = find_target_callees(
                     child,
                     targets,
@@ -452,12 +488,22 @@ pub fn find_target_callees(
                     new_cumulative,
                     seen,
                     true, // Reset: entering target's own subtree
+                    &mut fresh_path,
                 );
                 relations.extend(deeper);
                 target_stack.pop();
             }
         } else {
             // Not a target, continue traversing
+            // T011: Add this non-target function to the intermediary path
+            // Skip root caller recursion (self-calls don't count as intermediaries)
+            if !is_root_recursion {
+                current_path.push(IntermediaryStep {
+                    symbol: child.symbol.clone(),
+                    percentage: child_pct,
+                });
+            }
+
             // Pass still_inside_root_recursion - becomes false if we went through non-root intermediate
             let deeper = find_target_callees(
                 child,
@@ -468,8 +514,14 @@ pub fn find_target_callees(
                 new_cumulative,
                 seen,
                 still_inside_root_recursion,
+                current_path,
             );
             relations.extend(deeper);
+
+            // T011: Pop the intermediary after returning from subtree
+            if !is_root_recursion {
+                current_path.pop();
+            }
         }
     }
 
@@ -509,6 +561,7 @@ pub fn compute_call_relations(
                 let mut seen = HashSet::new();
                 seen.insert(entry.symbol.clone()); // Prevent self-recursion
                 let mut target_stack = Vec::new(); // Track intermediate targets
+                let mut current_path = Vec::new(); // T011: Track intermediary path
 
                 let relations = find_target_callees(
                     root,
@@ -519,6 +572,7 @@ pub fn compute_call_relations(
                     100.0, // Start at 100% of caller's time
                     &mut seen,
                     true, // Start inside root caller's "recursion zone"
+                    &mut current_path,
                 );
                 all_relations.extend(relations);
             }
@@ -592,15 +646,26 @@ pub fn build_hierarchy_entries(
             std::collections::HashMap::new();
         for r in relations.iter() {
             if simplified == r.callee {
-                let entry = contribution_by_caller.entry(r.caller.clone()).or_insert(0.0);
+                let entry = contribution_by_caller
+                    .entry(r.caller.clone())
+                    .or_insert(0.0);
                 if r.absolute_pct > *entry {
                     *entry = r.absolute_pct;
                 }
             }
         }
-        let contributions: Vec<f64> = contribution_by_caller.values().copied().collect();
 
-        let adjusted = compute_adjusted_percentage(entry.children_pct, &contributions);
+        // Build contributions breakdown for debug mode
+        let contributions_breakdown: Vec<CallerContribution> = contribution_by_caller
+            .iter()
+            .map(|(caller, &pct)| CallerContribution {
+                caller: caller.clone(),
+                absolute_pct: pct,
+            })
+            .collect();
+
+        let contribution_values: Vec<f64> = contribution_by_caller.values().copied().collect();
+        let adjusted = compute_adjusted_percentage(entry.children_pct, &contribution_values);
 
         // Determine if this entry is a caller (has callees) or just a callee
         let is_caller = !callees.is_empty();
@@ -625,6 +690,7 @@ pub fn build_hierarchy_entries(
             adjusted_children_pct: adjusted,
             callees,
             is_caller,
+            contributions: contributions_breakdown,
         });
     }
 
@@ -699,5 +765,48 @@ mod tests {
     fn test_compute_adjusted_percentage_floor() {
         let adjusted = compute_adjusted_percentage(10.0, &[15.0, 20.0]);
         assert_eq!(adjusted, 0.0);
+    }
+
+    // T007: Unit test for IntermediaryStep struct creation
+    #[test]
+    fn test_intermediary_step_creation() {
+        let step = IntermediaryStep {
+            symbol: "do_4d_transform".to_string(),
+            percentage: 42.0,
+        };
+        assert_eq!(step.symbol, "do_4d_transform");
+        assert!((step.percentage - 42.0).abs() < 0.01);
+    }
+
+    // T007: Test IntermediaryStep in CallRelation
+    #[test]
+    fn test_call_relation_with_intermediary_path() {
+        let relation = CallRelation {
+            caller: "rd_optimize".to_string(),
+            callee: "inner_product".to_string(),
+            relative_pct: 7.23,
+            absolute_pct: 5.19,
+            context_root: None,
+            intermediary_path: vec![IntermediaryStep {
+                symbol: "do_4d_transform".to_string(),
+                percentage: 42.0,
+            }],
+        };
+        assert_eq!(relation.intermediary_path.len(), 1);
+        assert_eq!(relation.intermediary_path[0].symbol, "do_4d_transform");
+    }
+
+    // T007: Test empty intermediary_path (direct call)
+    #[test]
+    fn test_call_relation_direct_call() {
+        let relation = CallRelation {
+            caller: "rd_optimize".to_string(),
+            callee: "DCT4DBlock".to_string(),
+            relative_pct: 17.23,
+            absolute_pct: 12.37,
+            context_root: None,
+            intermediary_path: vec![],
+        };
+        assert!(relation.intermediary_path.is_empty());
     }
 }

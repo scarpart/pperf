@@ -12,6 +12,7 @@ pub const RESET: &str = "\x1b[0m";
 pub const BLUE: &str = "\x1b[34m"; // User functions
 pub const YELLOW: &str = "\x1b[33m"; // Library/system functions
 pub const RED: &str = "\x1b[31m"; // Unresolved symbols
+pub const DIM: &str = "\x1b[2m"; // Dim/gray text for debug annotations
 
 /// Classification of a symbol's origin for color coding
 #[derive(Debug, Clone, Copy, PartialEq)]
