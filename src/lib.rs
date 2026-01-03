@@ -1,4 +1,5 @@
 pub mod filter;
+pub mod hierarchy;
 pub mod output;
 pub mod parser;
 pub mod symbol;
@@ -11,6 +12,8 @@ pub enum PperfError {
     InvalidFormat,
     InvalidCount,
     NoMatches,
+    /// T046: --hierarchy requires --targets
+    HierarchyRequiresTargets,
 }
 
 impl fmt::Display for PperfError {
@@ -22,6 +25,9 @@ impl fmt::Display for PperfError {
                 write!(f, "Invalid value for -n: expected positive integer")
             }
             PperfError::NoMatches => write!(f, "No matching functions found"),
+            PperfError::HierarchyRequiresTargets => {
+                write!(f, "--hierarchy requires --targets to be specified")
+            }
         }
     }
 }
@@ -57,5 +63,14 @@ mod tests {
     fn test_error_no_matches() {
         let err = PperfError::NoMatches;
         assert_eq!(format!("{}", err), "No matching functions found");
+    }
+
+    #[test]
+    fn test_error_hierarchy_requires_targets() {
+        let err = PperfError::HierarchyRequiresTargets;
+        assert_eq!(
+            format!("{}", err),
+            "--hierarchy requires --targets to be specified"
+        );
     }
 }

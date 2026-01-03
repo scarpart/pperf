@@ -378,3 +378,124 @@ fn test_top_command_piped_no_color() {
         "Piped output should have no ANSI escape codes"
     );
 }
+
+// ============================================================================
+// Feature 003: Call Hierarchy Tests
+// ============================================================================
+
+// T039: Integration test for --hierarchy without --targets returning error
+#[test]
+fn test_top_command_hierarchy_requires_targets() {
+    let output = Command::new("cargo")
+        .args(["run", "--", "top", "--hierarchy", "perf-report.txt"])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        !output.status.success(),
+        "--hierarchy without --targets should fail"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "Exit code should be 3 for missing --targets"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--hierarchy requires --targets"),
+        "Error should mention --hierarchy requires --targets"
+    );
+}
+
+// T040: Integration test for --hierarchy with --targets producing output
+#[test]
+fn test_top_command_hierarchy_with_targets() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "--targets",
+            "rd_optimize",
+            "DCT4D",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--hierarchy with --targets should succeed: {}",
+        stderr
+    );
+    assert!(stdout.contains("Children%"), "Output should have header");
+    assert!(
+        stdout.contains("Function"),
+        "Output should have Function column"
+    );
+}
+
+// T040: Test short flag -H
+#[test]
+fn test_top_command_hierarchy_short_flag() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-H",
+            "-t",
+            "rd_optimize",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "-H flag should work: {}", stderr);
+    assert!(
+        stdout.contains("rd_optimize"),
+        "Output should contain target function"
+    );
+}
+
+// T043: Integration test with real perf-report.txt
+#[test]
+fn test_top_command_hierarchy_real_data() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "--targets",
+            "rd_optimize_transform",
+            "DCT4DBlock",
+            "--no-color",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Hierarchy with real targets should succeed: {}",
+        stderr
+    );
+
+    // Should contain both target functions
+    assert!(
+        stdout.contains("rd_optimize_transform") || stdout.contains("rd_optimize"),
+        "Output should contain rd_optimize_transform"
+    );
+}

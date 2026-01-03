@@ -1,3 +1,4 @@
+use crate::hierarchy::HierarchyEntry;
 use crate::parser::PerfEntry;
 use crate::symbol::format_colored_symbol;
 
@@ -25,6 +26,45 @@ pub fn truncate_symbol(symbol: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &symbol[..max_len - 3])
     }
+}
+
+/// T047: Format hierarchy table with indented callees.
+/// Callers show their callees indented with relative percentages.
+/// Standalone entries show adjusted absolute percentages.
+pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> String {
+    let mut output = String::new();
+    output.push_str("Children%   Self%  Function\n");
+
+    for entry in entries {
+        // First, display the caller with original/adjusted percentages
+        let symbol = truncate_symbol(&entry.symbol, 100);
+        let colored_symbol = format_colored_symbol(&symbol, use_color);
+
+        // If this entry has callees, show original percentage
+        // Otherwise show adjusted percentage
+        let children_pct = if entry.is_caller {
+            entry.original_children_pct
+        } else {
+            entry.adjusted_children_pct
+        };
+
+        output.push_str(&format!(
+            "{:>8.2}  {:>6.2}  {}\n",
+            children_pct, entry.original_self_pct, colored_symbol
+        ));
+
+        // Then display indented callees with relative percentages (4-space indent)
+        for callee in &entry.callees {
+            let callee_symbol = truncate_symbol(&callee.callee, 96);
+            let colored_callee = format_colored_symbol(&callee_symbol, use_color);
+            output.push_str(&format!(
+                "{:>8.2}  {:>6.2}      {}\n",
+                callee.relative_pct, 0.0, colored_callee
+            ));
+        }
+    }
+
+    output
 }
 
 #[cfg(test)]
