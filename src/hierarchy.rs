@@ -391,6 +391,16 @@ pub fn find_target_callees(
     relations
 }
 
+/// Check if an entry is a "leaf" function where the call tree shows callers, not callees.
+/// Leaf functions have Self% approximately equal to Children%, meaning they don't call
+/// other functions that consume significant time. For these, perf report shows the
+/// call path TO the function, not FROM it.
+fn is_leaf_function(entry: &PerfEntry) -> bool {
+    // Consider it a leaf if Self% is within 1% of Children%, or if Self% > 50% of Children%
+    let diff = (entry.children_pct - entry.self_pct).abs();
+    diff < 1.0 || entry.self_pct > entry.children_pct * 0.5
+}
+
 /// T030: Compute all call relations between targets.
 pub fn compute_call_relations(
     trees: &[(PerfEntry, Vec<CallTreeNode>)],
@@ -403,6 +413,11 @@ pub fn compute_call_relations(
         let is_target = targets.iter().any(|t| entry.symbol.contains(t));
 
         if is_target {
+            // Skip leaf functions - their call tree shows callers, not callees
+            if is_leaf_function(entry) {
+                continue;
+            }
+
             // This entry is a caller, look for callees
             for root in tree_roots {
                 let mut seen = HashSet::new();

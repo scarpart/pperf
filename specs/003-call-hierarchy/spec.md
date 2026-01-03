@@ -2,7 +2,8 @@
 
 **Feature Branch**: `003-call-hierarchy`
 **Created**: 2026-01-02
-**Status**: Draft
+**Updated**: 2026-01-03
+**Status**: Active
 **Input**: User description: "Show only targeted functions in hierarchy - callers show indented callees (only if both are targets), with adjusted percentages subtracting already-accounted callee time"
 
 ## Critical: Percentage Calculation Semantics
@@ -19,14 +20,15 @@ This means DCT4DBlock consumes 17.23% **of rd_optimize_transform's time**, not 1
 
 ### Two Display Modes in pperf Output
 
-1. **Indented entries (callees under callers)**: Show percentage **relative to the caller**
-   - If A→B→C and targets are A,C: show C's contribution as % of A's time
-   - Must multiply through intermediate B to collapse it out
-   - Example: If B is 50% of A, and C is 40% of B, then C is 20% of A
+1. **Indented entries (callees under callers)**: Show percentage **relative to the immediate caller**
+   - If A→B→C and all are targets: show B's % relative to A, then C's % relative to B
+   - If A→B→C and only A,C are targets: show C's collapsed % relative to A (B.rel × C.rel)
+   - Example: If B is 50% of A, and C is 40% of B, then C is 20% of A (when B is not a target)
 
 2. **Standalone entries (top-level)**: Show **absolute percentage** of total program time
    - These are directly comparable and sum to ≤100%
-   - Adjusted by subtracting absolute contributions shown under callers
+   - Adjusted by subtracting absolute contributions from ROOT callers only
+   - A "root caller" is a caller that is NOT itself shown as a callee under another target
 
 ### Recursion Handling
 
@@ -34,6 +36,86 @@ If a target function appears recursively (directly or indirectly) in the call tr
 - **Stop at the first (topmost) occurrence** of that target callee
 - Do NOT traverse deeper into recursive calls of the same function
 - This prevents double-counting and infinite traversal
+
+---
+
+## Multi-Level Nesting
+
+### Core Concept
+
+When multiple targets form a call chain (A → B → C where all are targets), the display shows the full nested hierarchy with increasing indentation levels:
+
+```
+Children%   Self%  Function
+   71.80    0.00  A                      <- root caller (level 0)
+   50.00    0.00      B                  <- callee of A (level 1, 4-space indent)
+   40.00    0.00          C              <- callee of B (level 2, 8-space indent)
+   10.00    0.00  C                      <- standalone (adjusted: original - contributions)
+```
+
+### Indentation Rules
+
+- **Level 0** (root callers): No indentation
+- **Level 1** (direct callees): 4 spaces
+- **Level 2** (callees of callees): 8 spaces
+- **Level N**: N × 4 spaces
+
+### Consumption and Deduplication
+
+When a caller→callee relationship is displayed nested under a parent, it is "consumed" and should NOT be repeated:
+
+1. **A shows B, B shows C**: When B appears under A with C nested under B, then:
+   - B's standalone entry does NOT show C as its callee (already shown under A→B)
+   - C's standalone entry only counts contributions from its ROOT caller (A, not B)
+
+2. **Example with consumption**:
+   ```
+   A (80%)
+       B (50%)           <- B is 50% of A
+           C (40%)       <- C is 40% of B (shown here, consumed)
+   B (40%)               <- B standalone: 80% - (80% × 50%) = 40%
+                         <- NO C shown here (A→B→C already consumed that path)
+   C (5%)                <- C standalone: original - contribution from A only
+   ```
+
+3. **Independent branches**: If A→B→C AND separately D→C (different call path):
+   ```
+   A (80%)
+       B (50%)
+           C (40%)       <- C via A→B path
+   D (30%)
+       C (20%)           <- C via D path (different branch, NOT consumed)
+   C (5%)                <- C standalone: original - A's contribution - D's contribution
+   ```
+
+### Contribution Calculation for Adjusted Percentages
+
+For a target's standalone adjusted percentage:
+- Only subtract contributions from **root callers** (callers at level 0)
+- Do NOT subtract contributions from intermediate callers (they're already part of the root's contribution)
+
+**Formula**: `adjusted% = original% - Σ(root_caller.children% × path_product_to_target)`
+
+**Example**: A (80%) → B (50%) → C (40%)
+- C's contribution from A = 80% × 50% × 40% = 16% (absolute)
+- C's adjusted = C.original% - 16%
+- Do NOT also subtract "B's contribution" (that's double-counting)
+
+### Leaf Function Caller Chains (Bug Fix)
+
+Perf report shows **caller chains** for leaf functions (high Self%, low Children%):
+```
+7.47%  7.45%  inner_product      <- leaf function
+       |
+       |--6.45%--caller_address
+                 parallel_for     <- this is a CALLER, not a callee
+                 run_for_block    <- this is a CALLER, not a callee
+```
+
+These continuation lines show the call path TO the function, not calls FROM it. The parser must:
+- Detect leaf functions (Self% ≈ Children%)
+- NOT treat caller chain entries as callees
+- Only record actual callee relationships from non-leaf entries
 
 ---
 
@@ -122,19 +204,36 @@ The output maintains sorting order (by Children% or Self% depending on flags), w
 
 ### Functional Requirements
 
-- **FR-001**: System MUST parse call tree structure from perf report indentation patterns.
+#### Core Parsing
+- **FR-001**: System MUST parse call tree structure from perf report indentation patterns using column position (÷11) for depth calculation.
 - **FR-002**: System MUST identify caller-callee relationships between target functions, collapsing intermediate non-target functions via percentage multiplication.
 - **FR-003**: System MUST calculate callee's relative contribution to caller by multiplying percentages through intermediate (non-target) functions in the chain.
-- **FR-004**: System MUST display targeted callees indented (2 spaces) under their caller target with **relative percentages** (% of caller's time).
-- **FR-005**: System MUST display standalone entries with **absolute percentages** (% of total program time).
-- **FR-006**: System MUST subtract absolute callee contributions (caller.absolute% × callee.relative%) from callee's standalone percentage.
-- **FR-007**: System MUST floor adjusted percentages at 0.00% (never display negative).
-- **FR-008**: System MUST stop traversal at the first occurrence of a target callee to handle recursion correctly.
-- **FR-009**: System MUST accept `--hierarchy` flag that enables targeted call hierarchy display.
-- **FR-010**: System MUST require `--targets` when `--hierarchy` is specified, showing an error otherwise.
-- **FR-011**: System MUST preserve existing flat output when `--hierarchy` is not specified (backward compatibility).
-- **FR-012**: System MUST apply symbol simplification and color coding from feature 002.
-- **FR-013**: System MUST handle multiple callers of the same callee, showing the callee under each caller with that caller's specific relative contribution.
+- **FR-004**: System MUST detect leaf functions (Self% ≈ Children%) and NOT treat their caller chains as callee relationships.
+
+#### Multi-Level Nesting Display
+- **FR-005**: System MUST display targeted callees with multi-level indentation: N × 4 spaces for level N.
+- **FR-006**: System MUST recursively display callees of callees when both are targets, forming nested hierarchies.
+- **FR-007**: System MUST show relative percentages at each nesting level (% of immediate parent, not root).
+- **FR-008**: System MUST track "consumed" caller→callee relationships to avoid displaying them multiple times.
+- **FR-009**: When a relationship A→B→C is shown nested, B's standalone entry MUST NOT repeat C as a callee.
+
+#### Standalone Entries and Adjustment
+- **FR-010**: System MUST display standalone entries with **absolute percentages** (% of total program time).
+- **FR-011**: System MUST subtract absolute contributions only from ROOT callers (level 0 callers, not intermediate).
+- **FR-012**: System MUST floor adjusted percentages at 0.00% (never display negative).
+- **FR-013**: System MUST skip standalone entries with 0.00% adjusted if they have no unique time.
+
+#### Deduplication
+- **FR-014**: System MUST deduplicate entries with the same simplified symbol, showing only the first (highest %).
+- **FR-015**: System MUST deduplicate callees under a single caller, showing each callee once.
+- **FR-016**: System MUST stop traversal at the first occurrence of a target callee to handle recursion.
+
+#### CLI and Compatibility
+- **FR-017**: System MUST accept `--hierarchy` / `-H` flag that enables targeted call hierarchy display.
+- **FR-018**: System MUST require `--targets` when `--hierarchy` is specified, showing an error otherwise.
+- **FR-019**: System MUST preserve existing flat output when `--hierarchy` is not specified (backward compatibility).
+- **FR-020**: System MUST apply symbol simplification and color coding from feature 002.
+- **FR-021**: System MUST handle multiple callers of the same callee, showing the callee under each caller.
 
 ### Key Entities
 
@@ -155,18 +254,54 @@ The output maintains sorting order (by Children% or Self% depending on flags), w
 
 ## Example Output (Conceptual)
 
+### Example 1: Two-Level Hierarchy
+
 Given targets `rd_optimize_transform` (71.80% absolute) and `DCT4DBlock` (38.00% absolute standalone):
 
 ```
 Children%   Self%  Function
    71.80    0.00  rd_optimize_transform
-   17.23    0.00    DCT4DBlock              <- RELATIVE: 17.23% of rd_optimize_transform's time
-   25.63    5.00  DCT4DBlock                <- ABSOLUTE: 38.00% - (71.80% × 17.23%) = 38.00% - 12.37% = 25.63%
+   17.23    0.00      DCT4DBlock            <- RELATIVE: 17.23% of rd_optimize_transform's time
+   25.63    5.00  DCT4DBlock                <- ABSOLUTE: 38.00% - (71.80% × 17.23%) = 25.63%
 ```
 
 **Interpretation**:
 - Indented 17.23%: "DCT4DBlock takes 17.23% of rd_optimize_transform's time"
 - Standalone 25.63%: "DCT4DBlock takes 25.63% of total time NOT via rd_optimize_transform"
+
+### Example 2: Three-Level Multi-Nesting
+
+Given targets A (80%), B (called by A at 50%), C (called by B at 40%):
+
+```
+Children%   Self%  Function
+   80.00    0.00  A                         <- root caller
+   50.00    0.00      B                     <- B is 50% of A (level 1)
+   40.00    0.00          C                 <- C is 40% of B (level 2)
+   40.00    0.00  B                         <- B standalone: 80% - 40% = 40%
+                                            <- NO C here (consumed under A→B)
+    4.00    0.00  C                         <- C standalone: original - (80% × 50% × 40%) = original - 16%
+```
+
+**Key points**:
+- B under A shows C nested (8-space indent)
+- B standalone does NOT repeat C (relationship consumed)
+- C's adjustment uses A's contribution (16%), not B's
+
+### Example 3: Independent Branches
+
+Given A→B→C and separately D→C:
+
+```
+Children%   Self%  Function
+   80.00    0.00  A
+   50.00    0.00      B
+   40.00    0.00          C                 <- C via A→B (16% absolute contribution)
+   30.00    0.00  D
+   20.00    0.00      C                     <- C via D (6% absolute contribution)
+   40.00    0.00  B                         <- B standalone (C NOT shown, consumed above)
+    8.00    0.00  C                         <- C standalone: original - 16% - 6%
+```
 
 ## Test Data from perf-report.txt
 
