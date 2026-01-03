@@ -1,6 +1,6 @@
 use crate::hierarchy::{CallRelation, HierarchyEntry};
 use crate::parser::PerfEntry;
-use crate::symbol::format_colored_symbol;
+use crate::symbol::{format_colored_symbol, simplify_symbol};
 use std::collections::{HashMap, HashSet};
 
 /// T021: Format table with optional color support
@@ -77,12 +77,17 @@ pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> St
             entry.original_children_pct, entry.original_self_pct, colored_symbol
         ));
 
+        // Track visited callees to prevent infinite recursion (using simplified symbols)
+        let mut visited: HashSet<String> = HashSet::new();
+        visited.insert(simplify_symbol(&entry.symbol));
+
         // Recursively display callees with multi-level indentation
         display_callees_recursive(
             &entry.symbol,
             &callee_map,
             &callee_to_entry,
             &mut consumed,
+            &mut visited,
             &mut output,
             1, // Start at indent level 1
             use_color,
@@ -108,6 +113,10 @@ pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> St
                 entry.adjusted_children_pct, entry.original_self_pct, colored_symbol
             ));
 
+            // Track visited callees to prevent infinite recursion (using simplified symbols)
+            let mut visited: HashSet<String> = HashSet::new();
+            visited.insert(simplify_symbol(&entry.symbol));
+
             // Show only unconsumed callees
             for callee in &entry.callees {
                 if !consumed.contains(&(entry.symbol.clone(), callee.callee.clone())) {
@@ -116,6 +125,7 @@ pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> St
                         &callee_map,
                         &callee_to_entry,
                         &mut consumed,
+                        &mut visited,
                         &mut output,
                         1,
                         use_color,
@@ -139,11 +149,14 @@ pub fn format_hierarchy_table(entries: &[HierarchyEntry], use_color: bool) -> St
 
 /// Recursively display callees with increasing indentation levels.
 /// Each level adds 4 spaces of indentation.
+/// Uses visited set to prevent infinite recursion for recursive functions.
+#[allow(clippy::too_many_arguments)]
 fn display_callees_recursive(
     caller: &str,
     callee_map: &HashMap<String, Vec<&CallRelation>>,
     callee_to_entry: &HashMap<String, String>,
     consumed: &mut HashSet<(String, String)>,
+    visited: &mut HashSet<String>,
     output: &mut String,
     indent_level: usize,
     use_color: bool,
@@ -176,6 +189,17 @@ fn display_callees_recursive(
         // Check if this callee is also a caller (has its own callees)
         // Use the callee_to_entry map to find the corresponding entry
         if let Some(entry_symbol) = callee_to_entry.get(&callee_rel.callee) {
+            // Use simplified symbol to detect recursion (handles lambda variants)
+            let simplified = simplify_symbol(entry_symbol);
+
+            // Skip if already visited (prevents infinite recursion)
+            if visited.contains(&simplified) {
+                continue;
+            }
+
+            // Mark as visited before recursing
+            visited.insert(simplified);
+
             // Only recurse if this entry has callees in the callee_map
             if callee_map.contains_key(entry_symbol) {
                 display_callees_recursive(
@@ -183,6 +207,7 @@ fn display_callees_recursive(
                     callee_map,
                     callee_to_entry,
                     consumed,
+                    visited,
                     output,
                     indent_level + 1,
                     use_color,
