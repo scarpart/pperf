@@ -19,6 +19,15 @@ pperf top --hierarchy -t rd_optimize_transform -t DCT4DBlock perf-report.txt
 
 # Debug mode - show calculation path breakdown
 pperf top --hierarchy --debug -t rd_optimize -t DCT4DBlock -t inner_product perf-report.txt
+
+# Multi-file averaging - average metrics across multiple reports
+pperf top rep0.txt rep1.txt rep2.txt
+
+# Multi-file with debug - show per-report breakdown
+pperf top --debug rep0.txt rep1.txt rep2.txt
+
+# Multi-file with hierarchy - averaged call relationships
+pperf top --hierarchy -t rd_optimize -t DCT4DBlock rep0.txt rep1.txt rep2.txt
 ```
 
 ## Architecture
@@ -27,6 +36,7 @@ pperf top --hierarchy --debug -t rd_optimize -t DCT4DBlock -t inner_product perf
 src/
 ├── main.rs      # CLI entry point, argument parsing, orchestration
 ├── lib.rs       # Library root, error types (PperfError enum)
+├── averaging.rs # Multi-report averaging (ReportSet, AveragedPerfEntry)
 ├── parser.rs    # Perf report parsing (parse_file, parse_line, PerfEntry)
 ├── filter.rs    # Target substring matching
 ├── symbol.rs    # Symbol simplification and color classification
@@ -82,6 +92,20 @@ Children%   Self%  Function
                   (standalone: 38.29% - 12.37% (TransformPartition::rd_optimize_transform) = 25.92%)
 ```
 
+### Multi-Report Averaging (`averaging.rs`)
+Analyzes multiple perf report files and computes averaged metrics:
+- **Arithmetic mean**: Averages Children% and Self% across all reports
+- **Function matching**: Uses full symbol signature as unique key (handles overloads)
+- **Missing handling**: Functions not in all reports average only over present reports
+- **Debug mode**: Shows per-report breakdown: `(values: 73.86%, 73.60%, 70.40%)`
+
+Example with `--debug` on multi-file:
+```
+Children%   Self%  Function
+   72.62    0.00  TransformPartition::rd_optimize_transform
+                  (values: 73.86%, 73.60%, 70.40%)
+```
+
 ## Perf Report Format
 
 Perf reports have top-level entries with call trees:
@@ -127,3 +151,4 @@ cargo clippy
 - **003**: Call hierarchy display with `--hierarchy` flag
 - **004**: Debug calculation path with `--debug` flag (shows percentage derivation annotations)
 - **005**: Clap CLI refactor - replaced ad-hoc argument parsing with Clap derive macros
+- **006**: Multi-report averaging - analyze multiple perf reports with averaged metrics

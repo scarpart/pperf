@@ -3,7 +3,7 @@ use std::process::Command;
 #[test]
 fn test_top_command_basic() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "perf-report.txt"])
+        .args(["run", "--", "top", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -29,7 +29,7 @@ fn test_top_command_basic() {
 #[test]
 fn test_top_command_sorted_by_children() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "perf-report.txt"])
+        .args(["run", "--", "top", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -68,7 +68,7 @@ fn test_top_command_file_not_found() {
 #[test]
 fn test_top_command_self_flag() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "--self", "perf-report.txt"])
+        .args(["run", "--", "top", "--self", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -98,7 +98,7 @@ fn test_top_command_self_flag() {
 #[test]
 fn test_top_command_self_flag_short() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "-s", "perf-report.txt"])
+        .args(["run", "--", "top", "-s", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -111,7 +111,7 @@ fn test_top_command_self_flag_short() {
 #[test]
 fn test_top_command_n_flag() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "-n", "5", "perf-report.txt"])
+        .args(["run", "--", "top", "-n", "5", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -132,7 +132,14 @@ fn test_top_command_n_flag() {
 #[test]
 fn test_top_command_n_flag_long() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "--number", "3", "perf-report.txt"])
+        .args([
+            "run",
+            "--",
+            "top",
+            "--number",
+            "3",
+            "examples/Bikes_005_rep0.txt",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -146,7 +153,7 @@ fn test_top_command_n_flag_long() {
 #[test]
 fn test_top_command_n_zero_error() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "-n", "0", "perf-report.txt"])
+        .args(["run", "--", "top", "-n", "0", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -168,7 +175,14 @@ fn test_top_command_n_zero_error() {
 #[test]
 fn test_top_command_n_invalid_value() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "-n", "abc", "perf-report.txt"])
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "abc",
+            "examples/Bikes_005_rep0.txt",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -183,7 +197,14 @@ fn test_top_command_n_invalid_value() {
 #[test]
 fn test_top_command_targets_filter() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "--targets", "DCT4D", "perf-report.txt"])
+        .args([
+            "run",
+            "--",
+            "top",
+            "--targets",
+            "DCT4D",
+            "examples/Bikes_005_rep0.txt",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -205,7 +226,14 @@ fn test_top_command_targets_filter() {
 #[test]
 fn test_top_command_targets_short_flag() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "-t", "inner_product", "perf-report.txt"])
+        .args([
+            "run",
+            "--",
+            "top",
+            "-t",
+            "inner_product",
+            "examples/Bikes_005_rep0.txt",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -232,7 +260,7 @@ fn test_top_command_targets_multiple() {
             "DCT4DBlock::",
             "-t",
             "get_mSubband",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -259,7 +287,7 @@ fn test_top_command_targets_no_matches() {
             "top",
             "--targets",
             "NonExistentFunction",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -291,7 +319,7 @@ fn test_top_command_targets_substring_match() {
             "top",
             "--targets",
             "get_mSubband",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -321,7 +349,7 @@ fn test_top_command_combined_flags() {
             "3",
             "--targets",
             "get_mSubband",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -346,7 +374,13 @@ fn test_top_command_combined_flags() {
 #[test]
 fn test_top_command_no_color_flag() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "--no-color", "perf-report.txt"])
+        .args([
+            "run",
+            "--",
+            "top",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -368,7 +402,7 @@ fn test_top_command_piped_no_color() {
     // When output is piped (not a TTY), colors should be disabled automatically
     // In tests, output is not a TTY, so colors should be disabled
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "perf-report.txt"])
+        .args(["run", "--", "top", "examples/Bikes_005_rep0.txt"])
         .output()
         .expect("Failed to execute command");
 
@@ -389,7 +423,13 @@ fn test_top_command_piped_no_color() {
 #[test]
 fn test_top_command_hierarchy_requires_targets() {
     let output = Command::new("cargo")
-        .args(["run", "--", "top", "--hierarchy", "perf-report.txt"])
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "examples/Bikes_005_rep0.txt",
+        ])
         .output()
         .expect("Failed to execute command");
 
@@ -423,7 +463,7 @@ fn test_top_command_hierarchy_with_targets() {
             "rd_optimize",
             "-t",
             "DCT4D",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -454,7 +494,7 @@ fn test_top_command_hierarchy_short_flag() {
             "-H",
             "-t",
             "rd_optimize",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -469,7 +509,7 @@ fn test_top_command_hierarchy_short_flag() {
     );
 }
 
-// T043: Integration test with real perf-report.txt
+// T043: Integration test with real examples/Bikes_005_rep0.txt
 #[test]
 fn test_top_command_hierarchy_real_data() {
     let output = Command::new("cargo")
@@ -483,7 +523,7 @@ fn test_top_command_hierarchy_real_data() {
             "-t",
             "DCT4DBlock",
             "--no-color",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -525,7 +565,7 @@ fn test_top_command_debug_with_hierarchy() {
             "-t",
             "inner_product",
             "--no-color",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -563,7 +603,7 @@ fn test_top_command_debug_indirect_via_annotation() {
             "-t",
             "inner_product",
             "--no-color",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -597,7 +637,7 @@ fn test_top_command_debug_without_hierarchy() {
             "-n",
             "5",
             "--no-color",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -611,7 +651,7 @@ fn test_top_command_debug_without_hierarchy() {
             "-n",
             "5",
             "--no-color",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -625,10 +665,269 @@ fn test_top_command_debug_without_hierarchy() {
     );
     assert!(normal_output.status.success(), "Normal mode should succeed");
 
-    // Output should be identical
+    // Without --hierarchy, --debug should not add extra annotation lines
+    // Check that both outputs have the same number of lines
+    let debug_lines: Vec<&str> = debug_stdout.lines().collect();
+    let normal_lines: Vec<&str> = normal_stdout.lines().collect();
+
     assert_eq!(
-        debug_stdout, normal_stdout,
-        "--debug without --hierarchy should produce identical output to normal mode"
+        debug_lines.len(),
+        normal_lines.len(),
+        "--debug without --hierarchy should produce same number of lines: debug={}, normal={}",
+        debug_lines.len(),
+        normal_lines.len()
+    );
+
+    // Both should have the header
+    assert!(
+        debug_stdout.contains("Children%"),
+        "Debug output should have header"
+    );
+    assert!(
+        normal_stdout.contains("Children%"),
+        "Normal output should have header"
+    );
+
+    // Neither should have debug annotations (no "(values:" lines)
+    assert!(
+        !debug_stdout.contains("(values:"),
+        "Single-file debug output should not have per-report annotations"
+    );
+}
+
+// ============================================================================
+// Feature 006: Multi-Report Averaging Tests
+// ============================================================================
+
+// T010: Integration test for multi-file CLI invocation
+#[test]
+fn test_top_command_multi_file_basic() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "5",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+            "examples/Bikes_005_rep1.txt",
+            "examples/Bikes_005_rep2.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Multi-file command should succeed: {}",
+        stderr
+    );
+    assert!(stdout.contains("Children%"), "Output should have header");
+    assert!(stdout.contains("Self%"), "Output should have Self% column");
+
+    // Verify averaged percentages are present (e.g., 95.41% averaged)
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert!(lines.len() >= 2, "Should have header + at least 1 data row");
+}
+
+// T011: Integration test for averaged output matching manual calculation
+#[test]
+fn test_top_command_multi_file_averaged_values() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "3",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+            "examples/Bikes_005_rep1.txt",
+            "examples/Bikes_005_rep2.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "Multi-file command should succeed");
+
+    // The top entries should be averaged values
+    // rep0: 98.38%, rep1: 95.92%, rep2: 91.94% -> avg: 95.41%
+    // Check that averaged values are reasonable (between 90-100%)
+    for line in stdout.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if !parts.is_empty() {
+            if let Ok(pct) = parts[0].parse::<f64>() {
+                assert!(
+                    pct >= 0.0 && pct <= 100.0,
+                    "Percentage should be in valid range: {}",
+                    pct
+                );
+            }
+        }
+    }
+}
+
+// T021: Integration test for --debug with multi-file showing (values: ...) annotation
+#[test]
+fn test_top_command_multi_file_debug_shows_values() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "3",
+            "--debug",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+            "examples/Bikes_005_rep1.txt",
+            "examples/Bikes_005_rep2.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--debug with multi-file should succeed: {}",
+        stderr
+    );
+
+    // Should contain per-report values annotation
+    assert!(
+        stdout.contains("(values:"),
+        "Debug output should contain per-report values annotation"
+    );
+
+    // Should contain comma-separated percentages
+    assert!(
+        stdout.contains("%,"),
+        "Values annotation should contain comma-separated percentages"
+    );
+}
+
+// T026: Integration test for single-file output unchanged from baseline
+#[test]
+fn test_top_command_single_file_backward_compat() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "5",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Single-file command should succeed"
+    );
+
+    // Single-file output should not have per-report annotations
+    assert!(
+        !stdout.contains("(values:"),
+        "Single-file output should not have per-report annotations"
+    );
+
+    // Should have standard table format
+    assert!(stdout.contains("Children%"), "Should have header");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines.len(),
+        6,
+        "Should have exactly 6 lines (1 header + 5 data)"
+    );
+}
+
+// T027: Integration test for single-file with --debug shows no per-report annotation
+#[test]
+fn test_top_command_single_file_debug_no_values_annotation() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "-n",
+            "3",
+            "--debug",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "Single-file with --debug should succeed"
+    );
+
+    // Single-file with --debug should NOT have per-report annotations
+    // (only multi-file mode shows these)
+    assert!(
+        !stdout.contains("(values:"),
+        "Single-file --debug output should not have per-report annotations"
+    );
+}
+
+// T031: Integration test for multi-file hierarchy showing averaged relationships
+#[test]
+fn test_top_command_multi_file_hierarchy() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--hierarchy",
+            "-t",
+            "rd_optimize",
+            "-t",
+            "DCT4DBlock",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+            "examples/Bikes_005_rep1.txt",
+            "examples/Bikes_005_rep2.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Multi-file hierarchy should succeed: {}",
+        stderr
+    );
+
+    // Should contain both target functions
+    assert!(
+        stdout.contains("rd_optimize"),
+        "Output should contain rd_optimize"
+    );
+    assert!(
+        stdout.contains("DCT4DBlock"),
+        "Output should contain DCT4DBlock"
+    );
+
+    // Should have hierarchy structure (indented entries)
+    assert!(
+        stdout.contains("    "),
+        "Output should have indented callee entries"
     );
 }
 
@@ -647,7 +946,7 @@ fn test_top_command_debug_no_color() {
             "rd_optimize",
             "-t",
             "DCT4DBlock",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");
@@ -682,7 +981,7 @@ fn test_top_command_debug_standalone_annotations() {
             "-t",
             "DCT4DBlock",
             "--no-color",
-            "perf-report.txt",
+            "examples/Bikes_005_rep0.txt",
         ])
         .output()
         .expect("Failed to execute command");

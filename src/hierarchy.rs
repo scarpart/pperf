@@ -583,6 +583,84 @@ pub fn compute_call_relations(
 }
 
 // ============================================================================
+// Phase 5: Multi-File Hierarchy Averaging
+// ============================================================================
+
+/// Compute averaged call relations from multiple files' call trees.
+/// For each caller→callee pair, averages the relative_pct and absolute_pct across files.
+#[allow(clippy::type_complexity)]
+pub fn compute_averaged_call_relations(
+    all_file_trees: &[Vec<(PerfEntry, Vec<CallTreeNode>)>],
+    targets: &[String],
+) -> Vec<CallRelation> {
+    use std::collections::HashMap;
+
+    // Key: (caller, callee, context_root as Option<String>)
+    // Value: (sum_relative, sum_absolute, count, intermediary_path)
+    let mut relation_sums: HashMap<
+        (String, String, Option<String>),
+        (f64, f64, usize, Vec<IntermediaryStep>),
+    > = HashMap::new();
+
+    // Compute relations for each file
+    for trees in all_file_trees {
+        let relations = compute_call_relations(trees, targets);
+
+        for rel in relations {
+            let key = (
+                rel.caller.clone(),
+                rel.callee.clone(),
+                rel.context_root.clone(),
+            );
+            let entry =
+                relation_sums
+                    .entry(key)
+                    .or_insert((0.0, 0.0, 0, rel.intermediary_path.clone()));
+            entry.0 += rel.relative_pct;
+            entry.1 += rel.absolute_pct;
+            entry.2 += 1;
+        }
+    }
+
+    // Convert to averaged relations
+    relation_sums
+        .into_iter()
+        .map(
+            |((caller, callee, context_root), (sum_rel, sum_abs, count, path))| CallRelation {
+                caller,
+                callee,
+                relative_pct: sum_rel / count as f64,
+                absolute_pct: sum_abs / count as f64,
+                context_root,
+                intermediary_path: path,
+            },
+        )
+        .collect()
+}
+
+/// Parse call trees from multiple files.
+/// Returns a vector of trees for each file.
+pub fn parse_multi_file_call_trees(
+    file_contents: &[String],
+    averaged_entries: &[crate::averaging::AveragedPerfEntry],
+) -> Vec<Vec<(PerfEntry, Vec<CallTreeNode>)>> {
+    // Convert averaged entries to PerfEntry for compatibility
+    let entries: Vec<PerfEntry> = averaged_entries
+        .iter()
+        .map(|e| PerfEntry {
+            children_pct: e.children_pct,
+            self_pct: e.self_pct,
+            symbol: e.symbol.clone(),
+        })
+        .collect();
+
+    file_contents
+        .iter()
+        .map(|content| parse_file_call_trees(content, &entries))
+        .collect()
+}
+
+// ============================================================================
 // Phase 4: Percentage Adjustment
 // ============================================================================
 

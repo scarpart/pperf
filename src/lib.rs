@@ -1,3 +1,4 @@
+pub mod averaging;
 pub mod filter;
 pub mod hierarchy;
 pub mod output;

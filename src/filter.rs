@@ -1,6 +1,23 @@
+use crate::averaging::AveragedPerfEntry;
 use crate::parser::PerfEntry;
 
 pub fn filter_entries(entries: &[PerfEntry], targets: &[String]) -> Vec<PerfEntry> {
+    if targets.is_empty() {
+        return entries.to_vec();
+    }
+
+    entries
+        .iter()
+        .filter(|entry| targets.iter().any(|t| matches_pattern(&entry.symbol, t)))
+        .cloned()
+        .collect()
+}
+
+/// Filter averaged entries by target patterns.
+pub fn filter_averaged_entries(
+    entries: &[AveragedPerfEntry],
+    targets: &[String],
+) -> Vec<AveragedPerfEntry> {
     if targets.is_empty() {
         return entries.to_vec();
     }
