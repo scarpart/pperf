@@ -540,10 +540,13 @@ fn is_leaf_function(entry: &PerfEntry) -> bool {
 
 /// T030: Compute all call relations between targets.
 /// Now returns both direct relations and context-specific nested relations.
+/// Deduplicates by (caller, callee, context_root), taking MAX percentage per key.
 pub fn compute_call_relations(
     trees: &[(PerfEntry, Vec<CallTreeNode>)],
     targets: &[String],
 ) -> Vec<CallRelation> {
+    use std::collections::HashMap;
+
     let mut all_relations = Vec::new();
 
     for (entry, tree_roots) in trees {
@@ -579,7 +582,26 @@ pub fn compute_call_relations(
         }
     }
 
-    all_relations
+    // Deduplicate relations by (caller, callee, context_root), taking MAX percentage
+    // This handles cases where the same relation appears in multiple call tree roots
+    let mut deduped: HashMap<(String, String, Option<String>), CallRelation> = HashMap::new();
+    for rel in all_relations {
+        let key = (rel.caller.clone(), rel.callee.clone(), rel.context_root.clone());
+        deduped
+            .entry(key)
+            .and_modify(|existing| {
+                // Take max of relative_pct and absolute_pct
+                if rel.relative_pct > existing.relative_pct {
+                    existing.relative_pct = rel.relative_pct;
+                }
+                if rel.absolute_pct > existing.absolute_pct {
+                    existing.absolute_pct = rel.absolute_pct;
+                }
+            })
+            .or_insert(rel);
+    }
+
+    deduped.into_values().collect()
 }
 
 // ============================================================================

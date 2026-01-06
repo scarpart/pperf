@@ -162,8 +162,10 @@ pub fn format_hierarchy_table(
                 if remainder > 0.01 {
                     // Calculate relative % to this entry's standalone time
                     // remainder is absolute, entry.adjusted_children_pct is the standalone base
+                    // Cap at 100% - for recursive functions, the callee's total contribution
+                    // can exceed the caller's standalone time, but relative % can't exceed 100%
                     let relative_to_standalone = if entry.adjusted_children_pct > 0.0 {
-                        remainder / entry.adjusted_children_pct * 100.0
+                        (remainder / entry.adjusted_children_pct * 100.0).min(100.0)
                     } else {
                         0.0
                     };
@@ -215,13 +217,14 @@ fn display_callees_with_context(
         }
         visited.insert(callee_simplified.clone());
 
-        // Display this callee
+        // Display this callee (cap at 100% for sanity)
         let indent = "    ".repeat(indent_level);
         let callee_symbol = truncate_symbol(&callee_rel.callee, 100 - indent_level * 4);
         let colored_callee = format_colored_symbol(&callee_symbol, use_color);
+        let display_pct = callee_rel.relative_pct.min(100.0);
         output.push_str(&format!(
             "{:>8.2}  {:>6.2}  {}{}\n",
-            callee_rel.relative_pct, 0.0, indent, colored_callee
+            display_pct, 0.0, indent, colored_callee
         ));
 
         // T013: Output debug annotation on separate line below
@@ -254,14 +257,15 @@ fn display_callees_with_context(
                 }
                 visited.insert(nested_simplified.clone());
 
-                // Display nested callee with context-specific percentage
+                // Display nested callee with context-specific percentage (cap at 100%)
                 let nested_indent = "    ".repeat(indent_level + 1);
                 let nested_symbol =
                     truncate_symbol(&nested_rel.callee, 100 - (indent_level + 1) * 4);
                 let colored_nested = format_colored_symbol(&nested_symbol, use_color);
+                let nested_display_pct = nested_rel.relative_pct.min(100.0);
                 output.push_str(&format!(
                     "{:>8.2}  {:>6.2}  {}{}\n",
-                    nested_rel.relative_pct, 0.0, nested_indent, colored_nested
+                    nested_display_pct, 0.0, nested_indent, colored_nested
                 ));
 
                 // T013: Output debug annotation for nested callee
