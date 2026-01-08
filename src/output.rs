@@ -160,27 +160,20 @@ pub fn format_hierarchy_table(
                 let remainder = overall_absolute - consumed;
 
                 if remainder > 0.01 {
-                    // Calculate relative % to this entry's standalone time
-                    // remainder is absolute, entry.adjusted_children_pct is the standalone base
-                    let relative_to_standalone = if entry.adjusted_children_pct > 0.0 {
-                        remainder / entry.adjusted_children_pct * 100.0
-                    } else {
-                        0.0
-                    };
-
-                    // Display the remainder
+                    // Display the remainder callee with original relative percentage from perf data
+                    // (consistent with first pass display of callees under root callers)
                     let indent = "    ";
                     let callee_symbol = truncate_symbol(&callee.callee, 96);
                     let colored_callee = format_colored_symbol(&callee_symbol, use_color);
                     output.push_str(&format!(
                         "{:>8.2}  {:>6.2}  {}{}\n",
-                        relative_to_standalone, 0.0, indent, colored_callee
+                        callee.relative_pct, 0.0, indent, colored_callee
                     ));
 
                     // Add debug annotation for remainder callees
                     let annotation = format_debug_annotation(
                         &callee.intermediary_path,
-                        relative_to_standalone,
+                        callee.relative_pct,
                         callee.callee_direct_pct,
                         use_color,
                         debug,

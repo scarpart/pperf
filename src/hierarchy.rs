@@ -131,6 +131,14 @@ pub fn count_depth(line: &str) -> usize {
         return (pos / 11) + 1;
     }
 
+    // For continuation lines (function names without --- or --XX%-- patterns),
+    // use leading whitespace to estimate depth
+    let leading_spaces = line.len() - line.trim_start().len();
+    if leading_spaces >= 8 {
+        // Continuation lines are indented; estimate depth from column position
+        return (leading_spaces / 11) + 1;
+    }
+
     // Final fallback: count pipes (for lines that don't match above patterns)
     line.chars().filter(|&c| c == '|').count()
 }
@@ -212,14 +220,17 @@ pub fn parse_call_tree_line(line: &str) -> Option<CallTreeLine> {
         return None;
     }
 
-    // Must be a call tree line (contains | or starts with ---)
-    if !trimmed.starts_with('|') && !trimmed.starts_with('-') {
-        // Could be a function continuation line
-        if line.contains('|') {
-            // Parse as call tree line
-        } else {
+    // Must be a call tree line. Valid call tree lines:
+    // 1. Start with | or - (tree markers)
+    // 2. Contain | (tree structure)
+    // 3. Have significant indentation (>=8 spaces) - continuation lines
+    let leading_spaces = line.len() - line.trim_start().len();
+    if !trimmed.starts_with('|') && !trimmed.starts_with('-') && !line.contains('|') {
+        // Could be a function continuation line (indented function name without tree markers)
+        if leading_spaces < 8 {
             return None;
         }
+        // Continuation line: parse as call tree line with depth from indentation
     }
 
     let depth = count_depth(line);
@@ -301,6 +312,47 @@ pub fn build_call_tree(lines: &[CallTreeLine]) -> Vec<CallTreeNode> {
     roots
 }
 
+/// Check if a call tree line is a continuation line (no `---` or `--XX%--` markers).
+fn is_continuation_line(line: &str) -> bool {
+    !line.contains("---") && !line.contains("%--")
+}
+
+/// Post-process call tree lines to fix continuation line depths.
+/// In perf reports, continuation lines (function names without markers) that follow
+/// a `---` line are immediate callees and should be children, not siblings.
+fn fix_continuation_depths(lines: &mut [CallTreeLine]) {
+    if lines.is_empty() {
+        return;
+    }
+
+    // Track whether the previous non-continuation line was a root entry (has ---)
+    // and at what depth
+    let mut i = 0;
+    while i < lines.len() {
+        // Skip non-continuation lines (they have proper depth from markers)
+        if lines[i].relative_pct.is_some() {
+            // This line has a percentage marker - keep original depth
+            i += 1;
+            continue;
+        }
+
+        // This line has no percentage - check if it's a continuation following
+        // another line at the same depth
+        if i > 0 {
+            let prev_depth = lines[i - 1].depth;
+            let curr_depth = lines[i].depth;
+
+            // If same depth and previous had no percentage either (both continuations),
+            // or previous was a root (--- line), make this line a child
+            if curr_depth == prev_depth && lines[i - 1].relative_pct.is_none() {
+                // Consecutive continuation lines at same depth: second is child of first
+                lines[i].depth = prev_depth + 1;
+            }
+        }
+        i += 1;
+    }
+}
+
 /// T019: Parse call trees from perf report content.
 /// Returns a list of (top-level PerfEntry, associated call tree nodes).
 pub fn parse_file_call_trees(
@@ -325,6 +377,8 @@ pub fn parse_file_call_trees(
         if trimmed.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             // Finalize previous entry if any
             if let Some(entry) = current_entry.take() {
+                // Fix continuation line depths before building tree
+                fix_continuation_depths(&mut current_tree_lines);
                 let tree = build_call_tree(&current_tree_lines);
                 result.push((entry, tree));
                 current_tree_lines.clear();
@@ -347,6 +401,8 @@ pub fn parse_file_call_trees(
 
     // Finalize last entry
     if let Some(entry) = current_entry {
+        // Fix continuation line depths before building tree
+        fix_continuation_depths(&mut current_tree_lines);
         let tree = build_call_tree(&current_tree_lines);
         result.push((entry, tree));
     }
