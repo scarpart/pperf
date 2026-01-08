@@ -176,6 +176,18 @@ pub fn format_hierarchy_table(
                         "{:>8.2}  {:>6.2}  {}{}\n",
                         relative_to_standalone, 0.0, indent, colored_callee
                     ));
+
+                    // Add debug annotation for remainder callees
+                    let annotation = format_debug_annotation(
+                        &callee.intermediary_path,
+                        relative_to_standalone,
+                        callee.callee_direct_pct,
+                        use_color,
+                        debug,
+                    );
+                    if !annotation.is_empty() {
+                        output.push_str(&format!("                  {}{}\n", indent, annotation));
+                    }
                 }
             }
         }
@@ -228,6 +240,7 @@ fn display_callees_with_context(
         let annotation = format_debug_annotation(
             &callee_rel.intermediary_path,
             callee_rel.relative_pct,
+            callee_rel.callee_direct_pct,
             use_color,
             debug,
         );
@@ -268,6 +281,7 @@ fn display_callees_with_context(
                 let nested_annotation = format_debug_annotation(
                     &nested_rel.intermediary_path,
                     nested_rel.relative_pct,
+                    nested_rel.callee_direct_pct,
                     use_color,
                     debug,
                 );
@@ -345,6 +359,7 @@ fn display_nested_context(
         let annotation = format_debug_annotation(
             &callee_rel.intermediary_path,
             callee_rel.relative_pct,
+            callee_rel.callee_direct_pct,
             use_color,
             debug,
         );
@@ -378,10 +393,11 @@ fn display_nested_context(
 /// T012: Format debug annotation for calculation path.
 /// Returns empty string if debug is false.
 /// For direct calls (empty path): "(direct: X%)"
-/// For indirect calls: "(via A 42.00% × B 50.00% = 21.00%)"
+/// For indirect calls: "(via A 42.00% × 17.00% = 7.14%)" where 17.00% is callee's direct %
 pub fn format_debug_annotation(
     intermediary_path: &[crate::hierarchy::IntermediaryStep],
     final_pct: f64,
+    callee_direct_pct: f64,
     use_color: bool,
     debug: bool,
 ) -> String {
@@ -396,13 +412,16 @@ pub fn format_debug_annotation(
         // T017: Direct call - no intermediaries
         format!("(direct: {:.2}%)", final_pct)
     } else {
-        // Indirect call - show multiplication chain
+        // Indirect call - show multiplication chain including callee's direct percentage
         let steps: Vec<String> = intermediary_path
             .iter()
             .map(|step| format!("{} {:.2}%", step.symbol, step.percentage))
             .collect();
         let chain = steps.join(" × ");
-        format!("(via {} = {:.2}%)", chain, final_pct)
+        format!(
+            "(via {} × {:.2}% = {:.2}%)",
+            chain, callee_direct_pct, final_pct
+        )
     };
 
     // T014: Apply DIM color when use_color is true
@@ -554,7 +573,8 @@ mod tests {
         }];
 
         // With debug enabled, no color
-        let annotation = super::format_debug_annotation(&path, 42.0, false, true);
+        // intermediary 42.0% × callee 10.0% = 4.2% final
+        let annotation = super::format_debug_annotation(&path, 4.2, 10.0, false, true);
         assert!(
             annotation.contains("via"),
             "Should contain 'via' for indirect call"
@@ -563,10 +583,18 @@ mod tests {
             annotation.contains("do_4d_transform"),
             "Should contain intermediary name"
         );
-        assert!(annotation.contains("42.00%"), "Should contain percentage");
+        assert!(
+            annotation.contains("42.00%"),
+            "Should contain intermediary percentage"
+        );
+        assert!(
+            annotation.contains("10.00%"),
+            "Should contain callee's direct percentage"
+        );
+        assert!(annotation.contains("= 4.20%"), "Should show final result");
 
         // With debug disabled, should return empty
-        let empty = super::format_debug_annotation(&path, 42.0, false, false);
+        let empty = super::format_debug_annotation(&path, 4.2, 10.0, false, false);
         assert!(empty.is_empty(), "Should be empty when debug is false");
     }
 
@@ -584,8 +612,8 @@ mod tests {
             },
         ];
 
-        // Final percentage = 50% × 80% = 40%
-        let annotation = super::format_debug_annotation(&path, 40.0, false, true);
+        // intermediaries 50% × 80% × callee 10% = 4% final
+        let annotation = super::format_debug_annotation(&path, 4.0, 10.0, false, true);
         assert!(
             annotation.contains("via"),
             "Should contain 'via' for indirect call"
@@ -604,13 +632,17 @@ mod tests {
         );
         assert!(
             annotation.contains("50.00%"),
-            "Should contain first percentage"
+            "Should contain first intermediary percentage"
         );
         assert!(
             annotation.contains("80.00%"),
-            "Should contain second percentage"
+            "Should contain second intermediary percentage"
         );
-        assert!(annotation.contains("= 40.00%"), "Should show final result");
+        assert!(
+            annotation.contains("10.00%"),
+            "Should contain callee's direct percentage"
+        );
+        assert!(annotation.contains("= 4.00%"), "Should show final result");
     }
 
     // T015: Unit test for format_debug_annotation with empty path (direct call)
@@ -618,8 +650,8 @@ mod tests {
     fn test_format_debug_annotation_direct_call() {
         let path: Vec<IntermediaryStep> = vec![];
 
-        // Direct call should show "(direct: X%)"
-        let annotation = super::format_debug_annotation(&path, 25.0, false, true);
+        // Direct call should show "(direct: X%)" - callee_direct_pct is ignored for direct calls
+        let annotation = super::format_debug_annotation(&path, 25.0, 25.0, false, true);
         assert!(
             annotation.contains("direct"),
             "Should contain 'direct' for direct call"
@@ -631,7 +663,7 @@ mod tests {
         );
 
         // With debug disabled, should return empty
-        let empty = super::format_debug_annotation(&path, 25.0, false, false);
+        let empty = super::format_debug_annotation(&path, 25.0, 25.0, false, false);
         assert!(empty.is_empty(), "Should be empty when debug is false");
     }
 

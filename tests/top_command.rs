@@ -1,4 +1,6 @@
+use std::io::Write;
 use std::process::Command;
+use tempfile::NamedTempFile;
 
 #[test]
 fn test_top_command_basic() {
@@ -707,5 +709,323 @@ fn test_top_command_debug_standalone_annotations() {
     assert!(
         stdout.contains(" - ") && stdout.contains("(standalone:"),
         "Standalone annotation should show subtraction"
+    );
+}
+
+// ============================================================================
+// Feature 007: Exact Target File Tests
+// ============================================================================
+
+fn create_target_file(content: &str) -> NamedTempFile {
+    let mut file = NamedTempFile::new().unwrap();
+    write!(file, "{}", content).unwrap();
+    file
+}
+
+// T015: Test --target-file with real signature against examples/
+#[test]
+fn test_top_command_target_file_exact_match() {
+    let target_file = create_target_file("DCT4DBlock::DCT4DBlock(Block4D const&, double)");
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--target-file with exact signature should succeed: {}",
+        stderr
+    );
+
+    // Should find DCT4DBlock entry
+    assert!(
+        stdout.contains("DCT4DBlock"),
+        "Output should contain DCT4DBlock function"
+    );
+}
+
+// T016: Test end-to-end: --target-file with exact signatures produces correct output
+#[test]
+fn test_top_command_target_file_multiple_signatures() {
+    let target_file = create_target_file(
+        "# Comment line\n\
+         DCT4DBlock::DCT4DBlock(Block4D const&, double)\n\
+         \n\
+         Hierarchical4DEncoder::get_mSubbandLF_significance(unsigned int, LightfieldCoordinate<unsigned int> const&, LightfieldDimension<unsigned int, true> const&) const",
+    );
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--target-file with multiple signatures should succeed: {}",
+        stderr
+    );
+
+    // Should find both functions
+    assert!(
+        stdout.contains("DCT4DBlock") || stdout.contains("get_mSubband"),
+        "Output should contain matched functions"
+    );
+}
+
+// T028: Test --target-file and -t together produces conflict error
+#[test]
+fn test_top_command_target_file_conflicts_with_targets() {
+    let target_file = create_target_file("SomeFunction");
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "-t",
+            "DCT4D",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        !output.status.success(),
+        "--target-file and -t together should fail"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot be used with"),
+        "Error should mention argument conflict: {}",
+        stderr
+    );
+}
+
+// Test --target-file with non-existent file
+#[test]
+fn test_top_command_target_file_not_found() {
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            "/nonexistent/path/targets.txt",
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        !output.status.success(),
+        "Should fail when target file not found"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Exit code should be 1 for target file not found"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Target file not found"),
+        "Error should mention target file not found: {}",
+        stderr
+    );
+}
+
+// T023: Test end-to-end: --target-file with partial signature shows unmatched error
+// With exact matching, partial signatures don't match anything - they're unmatched.
+#[test]
+fn test_top_command_target_file_partial_signature_unmatched() {
+    // "Block4D::" is a partial signature that won't exactly match any symbol
+    // With exact matching, this is treated as unmatched, not ambiguous
+    let target_file = create_target_file("Block4D::");
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        !output.status.success(),
+        "Should fail when signature doesn't match"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "Exit code should be 6 for unmatched target"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("No matches found") || stderr.contains("Block4D::"),
+        "Error should mention unmatched signature: {}",
+        stderr
+    );
+}
+
+// Test --target-file with empty file (only comments)
+#[test]
+fn test_top_command_target_file_empty() {
+    let target_file = create_target_file("# Only comments\n# Nothing else");
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "perf-report.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        !output.status.success(),
+        "Should fail when target file is empty"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "Exit code should be 6 for empty target file"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no valid signatures"),
+        "Error should mention no valid signatures: {}",
+        stderr
+    );
+}
+
+// T038: Test --target-file with --hierarchy produces hierarchy output with exact matches
+#[test]
+fn test_top_command_target_file_with_hierarchy() {
+    // Use exact signatures for two functions that have caller-callee relationship
+    let target_file = create_target_file(
+        "TransformPartition::rd_optimize_transform(Block4D const&)\n\
+         DCT4DBlock::DCT4DBlock(Block4D const&, double)",
+    );
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "--hierarchy",
+            "--no-color",
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--target-file with --hierarchy should succeed: {}",
+        stderr
+    );
+
+    // Should contain header
+    assert!(
+        stdout.contains("Children%"),
+        "Output should have header: {}",
+        stdout
+    );
+
+    // Should contain both target functions
+    assert!(
+        stdout.contains("rd_optimize_transform") || stdout.contains("DCT4DBlock"),
+        "Output should contain target functions: {}",
+        stdout
+    );
+}
+
+// T034: Test end-to-end: --target-file with non-existent signature shows error
+#[test]
+fn test_top_command_target_file_unmatched_signatures() {
+    // Use signatures that won't match any entries
+    let target_file = create_target_file(
+        "NonExistent::function()\n\
+         Another::missing(int, double)\n\
+         DCT4DBlock::DCT4DBlock(Block4D const&, double)",
+    );
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "top",
+            "--target-file",
+            target_file.path().to_str().unwrap(),
+            "examples/Bikes_005_rep0.txt",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        !output.status.success(),
+        "Should fail when some signatures don't match"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "Exit code should be 6 for unmatched targets"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("No matches found for target signatures"),
+        "Error should mention no matches found: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("NonExistent::function()"),
+        "Error should list unmatched signature: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Another::missing(int, double)"),
+        "Error should list unmatched signature: {}",
+        stderr
     );
 }

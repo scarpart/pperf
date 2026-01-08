@@ -69,6 +69,9 @@ pub struct CallRelation {
     /// Ordered list of non-target functions traversed between caller and callee.
     /// Empty if this is a direct call (no intermediaries).
     pub intermediary_path: Vec<IntermediaryStep>,
+    /// Callee's direct percentage relative to its immediate parent in the call tree.
+    /// Used for debug annotations to show the complete calculation path.
+    pub callee_direct_pct: f64,
 }
 
 /// T005: Target function with computed hierarchy data for output.
@@ -341,8 +344,11 @@ pub fn parse_file_call_trees(
 // ============================================================================
 
 /// T027: Check if a target exists in the call tree.
+/// Uses bidirectional matching to support both:
+/// - `-t` mode: target is short substring, check symbol.contains(target)
+/// - `--target-file` mode: target is exact signature, check target.contains(symbol)
 pub fn find_target_in_tree(tree: &CallTreeNode, target: &str) -> bool {
-    if tree.symbol.contains(target) {
+    if tree.symbol.contains(target) || target.contains(&tree.symbol) {
         return true;
     }
     for child in &tree.children {
@@ -407,7 +413,10 @@ pub fn find_target_callees(
         };
 
         // Check if this child matches any target
-        let is_target = targets.iter().any(|t| child.symbol.contains(t));
+        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
+        let is_target = targets
+            .iter()
+            .any(|t| child.symbol.contains(t) || t.contains(&child.symbol));
 
         if is_target {
             // Check for recursion - if already seen, skip recording but continue traversing
@@ -447,6 +456,7 @@ pub fn find_target_callees(
                         absolute_pct: root_children_pct * effective_pct / 100.0,
                         context_root: None, // Direct from root, no context
                         intermediary_path: current_path.clone(), // T011: Include accumulated path
+                        callee_direct_pct: child_pct, // Callee's % relative to its direct parent
                     };
                     relations.push(relation);
                 } else {
@@ -466,6 +476,7 @@ pub fn find_target_callees(
                         absolute_pct: root_children_pct * new_cumulative / 100.0,
                         context_root: Some(root_caller.to_string()),
                         intermediary_path: current_path.clone(), // T011: Include accumulated path
+                        callee_direct_pct: child_pct, // Callee's % relative to its direct parent
                     };
                     relations.push(relation);
                 }
@@ -548,7 +559,10 @@ pub fn compute_call_relations(
 
     for (entry, tree_roots) in trees {
         // Check if this entry is a target
-        let is_target = targets.iter().any(|t| entry.symbol.contains(t));
+        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
+        let is_target = targets
+            .iter()
+            .any(|t| entry.symbol.contains(t) || t.contains(&entry.symbol));
 
         if is_target {
             // Skip leaf functions - their call tree shows callers, not callees
@@ -563,13 +577,29 @@ pub fn compute_call_relations(
                 let mut target_stack = Vec::new(); // Track intermediate targets
                 let mut current_path = Vec::new(); // T011: Track intermediary path
 
+                // The root node is already one level deep in the call tree.
+                // Check if it's a non-target intermediary that needs to be tracked.
+                let root_is_target = targets
+                    .iter()
+                    .any(|t| root.symbol.contains(t) || t.contains(&root.symbol));
+
+                if !root_is_target {
+                    // Root is a non-target intermediary - add to path
+                    current_path.push(IntermediaryStep {
+                        symbol: root.symbol.clone(),
+                        percentage: root.relative_pct,
+                    });
+                }
+
+                // Start cumulative at root's percentage (not 100%)
+                // since root is already a child of the entry
                 let relations = find_target_callees(
                     root,
                     targets,
                     &entry.symbol,
                     entry.children_pct,
                     &mut target_stack,
-                    100.0, // Start at 100% of caller's time
+                    root.relative_pct, // Start at root's percentage
                     &mut seen,
                     true, // Start inside root caller's "recursion zone"
                     &mut current_path,
@@ -611,7 +641,10 @@ pub fn build_hierarchy_entries(
 
     for entry in entries {
         // Check if this entry matches any target
-        let is_target = targets.iter().any(|t| entry.symbol.contains(t));
+        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
+        let is_target = targets
+            .iter()
+            .any(|t| entry.symbol.contains(t) || t.contains(&entry.symbol));
         if !is_target {
             continue;
         }
@@ -629,10 +662,11 @@ pub fn build_hierarchy_entries(
         // Deduplicate by callee symbol, keeping only unique callees
         let mut callees: Vec<CallRelation> = Vec::new();
         let mut seen_callees: HashSet<String> = HashSet::new();
-        for r in relations
-            .iter()
-            .filter(|r| entry.symbol.contains(&r.caller) && r.context_root.is_none())
-        {
+        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
+        for r in relations.iter().filter(|r| {
+            (entry.symbol.contains(&r.caller) || r.caller.contains(&entry.symbol))
+                && r.context_root.is_none()
+        }) {
             if !seen_callees.contains(&r.callee) {
                 seen_callees.insert(r.callee.clone());
                 callees.push(r.clone());
@@ -672,7 +706,10 @@ pub fn build_hierarchy_entries(
 
         // If this is purely a callee (not a caller), check if it's called by another target
         // and only show it as standalone if it has unique standalone time
-        let is_callee_of_target = callers.iter().any(|c| entry.symbol.contains(c));
+        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
+        let is_callee_of_target = callers
+            .iter()
+            .any(|c| entry.symbol.contains(c) || c.contains(&entry.symbol));
 
         // Skip entries that are both a callee AND have no callees themselves
         // unless they're also a caller
@@ -791,9 +828,11 @@ mod tests {
                 symbol: "do_4d_transform".to_string(),
                 percentage: 42.0,
             }],
+            callee_direct_pct: 17.2, // inner_product's % relative to do_4d_transform
         };
         assert_eq!(relation.intermediary_path.len(), 1);
         assert_eq!(relation.intermediary_path[0].symbol, "do_4d_transform");
+        assert!((relation.callee_direct_pct - 17.2).abs() < 0.01);
     }
 
     // T007: Test empty intermediary_path (direct call)
@@ -806,7 +845,9 @@ mod tests {
             absolute_pct: 12.37,
             context_root: None,
             intermediary_path: vec![],
+            callee_direct_pct: 17.23, // Same as relative_pct for direct calls
         };
         assert!(relation.intermediary_path.is_empty());
+        assert!((relation.callee_direct_pct - 17.23).abs() < 0.01);
     }
 }

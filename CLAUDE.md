@@ -14,6 +14,9 @@ pperf top --self perf-report.txt
 # Filter to specific functions (use -t for each target)
 pperf top -t rd_optimize -t DCT4D perf-report.txt
 
+# Filter using exact function signatures from a file
+pperf top --target-file targets.txt perf-report.txt
+
 # Show call hierarchy between targets
 pperf top --hierarchy -t rd_optimize_transform -t DCT4DBlock perf-report.txt
 
@@ -28,7 +31,7 @@ src/
 ├── main.rs      # CLI entry point, argument parsing, orchestration
 ├── lib.rs       # Library root, error types (PperfError enum)
 ├── parser.rs    # Perf report parsing (parse_file, parse_line, PerfEntry)
-├── filter.rs    # Target substring matching
+├── filter.rs    # Target filtering (substring and exact signature matching)
 ├── symbol.rs    # Symbol simplification and color classification
 ├── output.rs    # Table formatting (format_table, format_hierarchy_table)
 └── hierarchy.rs # Call tree parsing and relationship discovery
@@ -65,7 +68,7 @@ Children%   Self%  Function
 ### Debug Mode (`--debug` flag)
 Shows calculation path annotations for hierarchy percentages:
 - **Direct calls**: `(direct: 17.23%)` - shown on gray line below direct caller→callee entries
-- **Indirect calls**: `(via do_4d_transform 4.98% = 0.07%)` - shows intermediary chain for calls that traverse non-target functions
+- **Indirect calls**: `(via do_4d_transform 5.29% × 1.73% = 0.09%)` - shows intermediary chain PLUS callee's direct percentage for calls that traverse non-target functions
 - **Standalone entries**: `(standalone: 38.00% - 12.37% (rd_optimize_transform) = 25.63%)` - shows subtraction breakdown for adjusted percentages
 - Only active when combined with `--hierarchy`; has no effect in normal mode
 - Annotations rendered in gray (DIM) color when color output is enabled
@@ -73,13 +76,15 @@ Shows calculation path annotations for hierarchy percentages:
 Example with `--debug`:
 ```
 Children%   Self%  Function
-   71.80    0.00  TransformPartition::rd_optimize_transform
-   17.23    0.00      DCT4DBlock::DCT4DBlock
-                      (direct: 17.23%)
-    0.07    0.00          std::inner_product
-                          (via Transformed4DBlock::do_4d_transform 4.98% = 0.07%)
-   25.92    0.00  DCT4DBlock::DCT4DBlock
-                  (standalone: 38.29% - 12.37% (TransformPartition::rd_optimize_transform) = 25.92%)
+   73.86    0.00  TransformPartition::rd_optimize_transform
+    5.31    0.00      DCT4DBlock::DCT4DBlock
+                      (direct: 5.31%)
+    0.09    0.00          std::inner_product
+                          (via do_4d_transform 5.29% × 1.73% = 0.09%)
+   21.20    0.00  DCT4DBlock::DCT4DBlock
+                  (standalone: 25.12% - 3.92% (rd_optimize_transform) = 21.20%)
+    2.96    0.00      std::inner_product
+                      (via do_4d_transform 24.80% × 10.07% = 2.96%)
 ```
 
 ## Perf Report Format
@@ -100,6 +105,7 @@ The `hierarchy.rs` module parses these call trees and discovers relationships be
 | `--self` | `-s` | Sort by Self% instead of Children% |
 | `--number <N>` | `-n` | Limit output to N entries (default: 10) |
 | `--targets <name>` | `-t` | Filter to functions matching substring (repeatable) |
+| `--target-file <path>` | | Filter using exact function signatures from a file (one per line) |
 | `--hierarchy` | `-H` | Show call relationships between targets |
 | `--debug` | `-D` | Show calculation path annotations (requires `--hierarchy`) |
 | `--no-color` | | Disable ANSI color output |
@@ -127,3 +133,4 @@ cargo clippy
 - **003**: Call hierarchy display with `--hierarchy` flag
 - **004**: Debug calculation path with `--debug` flag (shows percentage derivation annotations)
 - **005**: Clap CLI refactor - replaced ad-hoc argument parsing with Clap derive macros
+- **007**: Exact target file matching via `--target-file` flag - reduces ambiguity in function name matching by using exact function signatures from a file

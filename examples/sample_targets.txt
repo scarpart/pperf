@@ -1,0 +1,21 @@
+# Sample target file for pperf --target-file
+# Contains interesting functions from Bikes_005_rep0.txt perf report
+# These are carefully selected to be unambiguous (no lambda duplicates)
+
+# DCT transform block constructor - 25% of execution time
+DCT4DBlock::DCT4DBlock(Block4D const&, double)
+
+# Subband significance calculation - hot path (31%, 17% self)
+Hierarchical4DEncoder::get_mSubbandLF_significance(unsigned int, LightfieldCoordinate<unsigned int> const&, LightfieldDimension<unsigned int, true> const&) const
+
+# Standard library inner product - vectorized computation (10%)
+double std::inner_product<double*, double const*, double>(double*, double*, double const*, double) [clone .constprop.0]
+
+# RD optimization transform - top-level (73%)
+TransformPartition::rd_optimize_transform(Block4D const&)
+
+# Hexadecatree optimization - recursive hierarchical encoder (deeply recursive)
+Hierarchical4DEncoder::rd_optimize_hexadecatree(LightfieldCoordinate<unsigned int> const&, LightfieldDimension<unsigned int, true> const&, double, unsigned char)
+
+# Split evaluation for partitions - 47% of execution time
+void TransformPartition::evaluate_split_for_partitions<(PartitionFlag)1, (PartitionFlag)2>(Block4D const&, Partitioner<int, unsigned int> const&, ProbabilityModelsHandler const&, RDCostResult&, std::vector<PartitionFlag, std::allocator<PartitionFlag> >&, ProbabilityModelsHandler&, Block4D&)

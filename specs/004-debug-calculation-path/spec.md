@@ -34,9 +34,9 @@ A developer analyzing performance data wants to understand how a nested callee's
 
 **Acceptance Scenarios**:
 
-1. **Given** a hierarchy where target A calls intermediary X which calls target B, **When** running with `--hierarchy --debug`, **Then** target B's entry shows a gray line below with the format: `(via X 50.00% × 30.00% = 15.00%)`
+1. **Given** a hierarchy where target A calls intermediary X which calls target B, **When** running with `--hierarchy --debug`, **Then** target B's entry shows a gray line below with the format: `(via X 50.00% × 30.00% = 15.00%)` where 30.00% is target B's direct percentage relative to X
 
-2. **Given** a hierarchy where target A calls X → Y → Z → target B (multiple intermediaries), **When** running with `--hierarchy --debug`, **Then** target B's entry shows all intermediaries: `(via X 50.00% × Y 40.00% × Z 20.00% × 10.00% = 0.40%)`
+2. **Given** a hierarchy where target A calls X → Y → Z → target B (multiple intermediaries), **When** running with `--hierarchy --debug`, **Then** target B's entry shows all intermediaries plus the callee's direct percentage: `(via X 50.00% × Y 40.00% × Z 20.00% × 10.00% = 0.40%)` where 10.00% is target B's direct percentage relative to Z
 
 ---
 
@@ -102,7 +102,7 @@ The `--debug` flag only applies to hierarchy mode; without `--hierarchy`, it has
 - **FR-001**: System MUST accept `--debug` and `-D` as command-line flags for the `top` subcommand
 - **FR-002**: When `--debug` is present with `--hierarchy`, system MUST display a calculation annotation line below each callee entry
 - **FR-003**: For direct calls (no intermediaries), annotation MUST use format: `(direct: X.XX%)`
-- **FR-004**: For indirect calls, annotation MUST use format: `(via IntermediaryA X.XX% × IntermediaryB Y.YY% × ... = Z.ZZ%)`
+- **FR-004**: For indirect calls, annotation MUST use format: `(via IntermediaryA X.XX% × IntermediaryB Y.YY% × CalleeDirectPct% = Z.ZZ%)` where the final percentage before `=` is the callee's direct percentage relative to its immediate parent in the call tree
 - **FR-005**: Intermediary names MUST be simplified (same simplification as main symbol display)
 - **FR-006**: All intermediaries in the calculation path MUST be shown (no truncation)
 - **FR-007**: Annotation lines MUST be rendered in gray/dim color when color output is enabled
