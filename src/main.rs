@@ -162,12 +162,13 @@ fn run_top(args: TopArgs) -> Result<(), PperfError> {
 
     // Wire hierarchy computation when --hierarchy is specified
     if hierarchy_flag {
-        // Determine which targets to use for hierarchy
-        let hierarchy_targets: Vec<String> = if let Some(ref signatures) = exact_signatures {
-            signatures.clone()
-        } else {
-            targets.clone()
-        };
+        // Determine which targets to use for hierarchy and whether we're in exact mode
+        let (hierarchy_targets, exact_mode): (Vec<String>, bool) =
+            if let Some(ref signatures) = exact_signatures {
+                (signatures.clone(), true)
+            } else {
+                (targets.clone(), false)
+            };
 
         // Read file content for call tree parsing
         let content = fs::read_to_string(path)
@@ -177,10 +178,11 @@ fn run_top(args: TopArgs) -> Result<(), PperfError> {
         let trees = parse_file_call_trees(&content, &entries);
 
         // Compute relationships between targets
-        let relations = compute_call_relations(&trees, &hierarchy_targets);
+        let relations = compute_call_relations(&trees, &hierarchy_targets, exact_mode);
 
         // Build hierarchy entries with adjusted percentages
-        let hierarchy_entries = build_hierarchy_entries(&entries, &hierarchy_targets, &relations);
+        let hierarchy_entries =
+            build_hierarchy_entries(&entries, &hierarchy_targets, &relations, exact_mode);
 
         // Format and output
         let display_entries: Vec<_> = hierarchy_entries.into_iter().take(count).collect();

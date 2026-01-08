@@ -7,6 +7,21 @@ use crate::parser::PerfEntry;
 use crate::symbol::simplify_symbol;
 use std::collections::HashSet;
 
+/// Match a symbol against targets based on the matching mode.
+/// - `exact_mode = true`: targets are exact signatures, simplify and compare with equality
+/// - `exact_mode = false`: targets are substrings, use contains matching
+fn matches_any_target(symbol: &str, targets: &[String], exact_mode: bool) -> bool {
+    if exact_mode {
+        // Exact mode: simplify each target and compare with equality
+        targets
+            .iter()
+            .any(|t| symbol == simplify_symbol(t))
+    } else {
+        // Substring mode: check if symbol contains any target
+        targets.iter().any(|t| symbol.contains(t))
+    }
+}
+
 /// T001: Represents a single line from the perf report call tree section.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallTreeLine {
@@ -344,15 +359,19 @@ pub fn parse_file_call_trees(
 // ============================================================================
 
 /// T027: Check if a target exists in the call tree.
-/// Uses bidirectional matching to support both:
-/// - `-t` mode: target is short substring, check symbol.contains(target)
-/// - `--target-file` mode: target is exact signature, check target.contains(symbol)
-pub fn find_target_in_tree(tree: &CallTreeNode, target: &str) -> bool {
-    if tree.symbol.contains(target) || target.contains(&tree.symbol) {
+/// - `exact_mode = true`: compare simplified target with equality
+/// - `exact_mode = false`: use substring matching
+pub fn find_target_in_tree(tree: &CallTreeNode, target: &str, exact_mode: bool) -> bool {
+    let matches = if exact_mode {
+        tree.symbol == simplify_symbol(target)
+    } else {
+        tree.symbol.contains(target)
+    };
+    if matches {
         return true;
     }
     for child in &tree.children {
-        if find_target_in_tree(child, target) {
+        if find_target_in_tree(child, target, exact_mode) {
             return true;
         }
     }
@@ -373,6 +392,7 @@ pub fn find_target_in_tree(tree: &CallTreeNode, target: &str) -> bool {
 /// - seen: Set of targets already recorded (prevents duplicate recording)
 /// - inside_root_recursion: True if path only contains root caller recursive calls (no other intermediates)
 /// - current_path: Accumulator for non-target intermediary functions traversed
+/// - exact_mode: True for exact signature matching (--target-file), false for substring matching (-t)
 #[allow(clippy::too_many_arguments)]
 pub fn find_target_callees(
     node: &CallTreeNode,
@@ -384,6 +404,7 @@ pub fn find_target_callees(
     seen: &mut HashSet<String>,
     inside_root_recursion: bool,
     current_path: &mut Vec<IntermediaryStep>,
+    exact_mode: bool,
 ) -> Vec<CallRelation> {
     let mut relations = Vec::new();
     let root_caller_simplified = simplify_symbol(root_caller);
@@ -413,10 +434,7 @@ pub fn find_target_callees(
         };
 
         // Check if this child matches any target
-        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
-        let is_target = targets
-            .iter()
-            .any(|t| child.symbol.contains(t) || t.contains(&child.symbol));
+        let is_target = matches_any_target(&child.symbol, targets, exact_mode);
 
         if is_target {
             // Check for recursion - if already seen, skip recording but continue traversing
@@ -434,6 +452,7 @@ pub fn find_target_callees(
                     seen,
                     still_inside_root_recursion,
                     &mut fresh_path,
+                    exact_mode,
                 );
                 relations.extend(deeper);
             } else {
@@ -500,6 +519,7 @@ pub fn find_target_callees(
                     seen,
                     true, // Reset: entering target's own subtree
                     &mut fresh_path,
+                    exact_mode,
                 );
                 relations.extend(deeper);
                 target_stack.pop();
@@ -526,6 +546,7 @@ pub fn find_target_callees(
                 seen,
                 still_inside_root_recursion,
                 current_path,
+                exact_mode,
             );
             relations.extend(deeper);
 
@@ -551,18 +572,20 @@ fn is_leaf_function(entry: &PerfEntry) -> bool {
 
 /// T030: Compute all call relations between targets.
 /// Now returns both direct relations and context-specific nested relations.
+/// - `exact_mode = true`: targets are exact signatures, use equality matching after simplification
+/// - `exact_mode = false`: targets are substrings, use contains matching
 pub fn compute_call_relations(
     trees: &[(PerfEntry, Vec<CallTreeNode>)],
     targets: &[String],
+    exact_mode: bool,
 ) -> Vec<CallRelation> {
     let mut all_relations = Vec::new();
 
     for (entry, tree_roots) in trees {
         // Check if this entry is a target
-        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
-        let is_target = targets
-            .iter()
-            .any(|t| entry.symbol.contains(t) || t.contains(&entry.symbol));
+        // For exact mode, we need to simplify the entry symbol to compare
+        let entry_simplified = simplify_symbol(&entry.symbol);
+        let is_target = matches_any_target(&entry_simplified, targets, exact_mode);
 
         if is_target {
             // Skip leaf functions - their call tree shows callers, not callees
@@ -579,9 +602,7 @@ pub fn compute_call_relations(
 
                 // The root node is already one level deep in the call tree.
                 // Check if it's a non-target intermediary that needs to be tracked.
-                let root_is_target = targets
-                    .iter()
-                    .any(|t| root.symbol.contains(t) || t.contains(&root.symbol));
+                let root_is_target = matches_any_target(&root.symbol, targets, exact_mode);
 
                 if !root_is_target {
                     // Root is a non-target intermediary - add to path
@@ -603,6 +624,7 @@ pub fn compute_call_relations(
                     &mut seen,
                     true, // Start inside root caller's "recursion zone"
                     &mut current_path,
+                    exact_mode,
                 );
                 all_relations.extend(relations);
             }
@@ -623,13 +645,14 @@ pub fn compute_adjusted_percentage(original: f64, contributions: &[f64]) -> f64 
 }
 
 /// T037: Build hierarchy entries from entries and relations.
+/// - `exact_mode = true`: targets are exact signatures, use equality matching after simplification
+/// - `exact_mode = false`: targets are substrings, use contains matching
 pub fn build_hierarchy_entries(
     entries: &[PerfEntry],
     targets: &[String],
     relations: &[CallRelation],
+    exact_mode: bool,
 ) -> Vec<HierarchyEntry> {
-    use crate::symbol::simplify_symbol;
-
     let mut result = Vec::new();
 
     // Track which simplified symbols we've already added to avoid duplicates
@@ -640,17 +663,14 @@ pub fn build_hierarchy_entries(
     let callers: HashSet<String> = relations.iter().map(|r| r.caller.clone()).collect();
 
     for entry in entries {
+        // Simplify the symbol for matching and deduplication
+        let simplified = simplify_symbol(&entry.symbol);
+
         // Check if this entry matches any target
-        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
-        let is_target = targets
-            .iter()
-            .any(|t| entry.symbol.contains(t) || t.contains(&entry.symbol));
+        let is_target = matches_any_target(&simplified, targets, exact_mode);
         if !is_target {
             continue;
         }
-
-        // Simplify the symbol for deduplication
-        let simplified = simplify_symbol(&entry.symbol);
 
         // Skip if we've already added an entry with this simplified symbol
         if added_symbols.contains(&simplified) {
@@ -662,10 +682,10 @@ pub fn build_hierarchy_entries(
         // Deduplicate by callee symbol, keeping only unique callees
         let mut callees: Vec<CallRelation> = Vec::new();
         let mut seen_callees: HashSet<String> = HashSet::new();
-        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
+        // Match relations where this entry is the caller
+        // r.caller is simplified (from parse_file_call_trees), compare with simplified entry symbol
         for r in relations.iter().filter(|r| {
-            (entry.symbol.contains(&r.caller) || r.caller.contains(&entry.symbol))
-                && r.context_root.is_none()
+            r.caller == simplified && r.context_root.is_none()
         }) {
             if !seen_callees.contains(&r.callee) {
                 seen_callees.insert(r.callee.clone());
@@ -706,10 +726,8 @@ pub fn build_hierarchy_entries(
 
         // If this is purely a callee (not a caller), check if it's called by another target
         // and only show it as standalone if it has unique standalone time
-        // Uses bidirectional matching for both -t (substring) and --target-file (exact signature) modes
-        let is_callee_of_target = callers
-            .iter()
-            .any(|c| entry.symbol.contains(c) || c.contains(&entry.symbol));
+        // callers contains simplified symbols, compare with simplified entry symbol
+        let is_callee_of_target = callers.contains(&simplified);
 
         // Skip entries that are both a callee AND have no callees themselves
         // unless they're also a caller
