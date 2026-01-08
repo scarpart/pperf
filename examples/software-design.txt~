@@ -1,0 +1,10 @@
+function A calls function B which calls function C. Function A, in the same callpath, also calls function C directly. The expected output should be the following, with teh callee percentages being relative to the caller, and the caller percentages always being relative to the total execution time:
+
+
+XX% YY% functionA
+XX% YY%   functionB
+XX% YY%     functionC
+XX% YY%   functionC
+XX% YY% functionB // percentage of remaining time (not called within functionA)
+XX% YY%   functionC // percentage of remaining time relative to functionB (not called within functionA)
+XX% YY% functionC // percentage of total time subtracting from the previous percentages of this function, though multiplying those relative percentages by their chain of caller's percentages in order to have the total execution time to subtract in a semantically sound manner

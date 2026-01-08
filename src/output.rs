@@ -65,6 +65,16 @@ pub fn format_hierarchy_table(
         }
     }
 
+    // Build callee-to-callee map for standalone nesting (all relations, keyed by caller)
+    // This allows finding nested callees for any caller, regardless of root context
+    let mut callee_to_callee_map: HashMap<String, Vec<&CallRelation>> = HashMap::new();
+    for r in all_relations {
+        callee_to_callee_map
+            .entry(r.caller.clone())
+            .or_default()
+            .push(r);
+    }
+
     // Build entry lookup by simplified symbol
     let mut entry_by_simplified: HashMap<String, &HierarchyEntry> = HashMap::new();
     for entry in entries {
@@ -148,41 +158,21 @@ pub fn format_hierarchy_table(
             output.push_str(&format!("                  {}\n", standalone_annotation));
         }
 
-        // If this entry has callees, show remainder callees (overall - consumed)
+        // If this entry has callees, show remainder callees recursively (overall - consumed)
         if entry.is_caller {
-            for callee in &entry.callees {
-                let callee_simplified = simplify_symbol(&callee.callee);
-                let consumed = consumed_absolute
-                    .get(&callee_simplified)
-                    .copied()
-                    .unwrap_or(0.0);
-                let overall_absolute = callee.absolute_pct;
-                let remainder = overall_absolute - consumed;
+            let mut visited: HashSet<String> = HashSet::new();
+            visited.insert(simplified.clone()); // Don't revisit the entry itself
 
-                if remainder > 0.01 {
-                    // Display the remainder callee with original relative percentage from perf data
-                    // (consistent with first pass display of callees under root callers)
-                    let indent = "    ";
-                    let callee_symbol = truncate_symbol(&callee.callee, 96);
-                    let colored_callee = format_colored_symbol(&callee_symbol, use_color);
-                    output.push_str(&format!(
-                        "{:>8.2}  {:>6.2}  {}{}\n",
-                        callee.relative_pct, 0.0, indent, colored_callee
-                    ));
-
-                    // Add debug annotation for remainder callees
-                    let annotation = format_debug_annotation(
-                        &callee.intermediary_path,
-                        callee.relative_pct,
-                        callee.callee_direct_pct,
-                        use_color,
-                        debug,
-                    );
-                    if !annotation.is_empty() {
-                        output.push_str(&format!("                  {}{}\n", indent, annotation));
-                    }
-                }
-            }
+            display_standalone_callees_recursive(
+                &entry.callees,
+                &callee_to_callee_map,
+                &mut consumed_absolute,
+                &mut visited,
+                &mut output,
+                1, // Start at indent level 1
+                use_color,
+                debug,
+            );
         }
     }
 
@@ -372,6 +362,81 @@ fn display_nested_context(
                 &callee_rel.callee,
                 root_caller_simplified,
                 context_callee_map,
+                consumed_absolute,
+                visited,
+                output,
+                indent_level + 1,
+                use_color,
+                debug,
+            );
+        }
+    }
+}
+
+/// Display callees recursively for standalone entries.
+/// Uses callee_to_callee_map to find nested callees.
+#[allow(clippy::too_many_arguments)]
+fn display_standalone_callees_recursive(
+    callees: &[CallRelation],
+    callee_to_callee_map: &HashMap<String, Vec<&CallRelation>>,
+    consumed_absolute: &mut HashMap<String, f64>,
+    visited: &mut HashSet<String>,
+    output: &mut String,
+    indent_level: usize,
+    use_color: bool,
+    debug: bool,
+) {
+    for callee in callees {
+        let callee_simplified = simplify_symbol(&callee.callee);
+
+        // Skip if already visited (recursion prevention)
+        if visited.contains(&callee_simplified) {
+            continue;
+        }
+
+        // Check remainder: overall - consumed
+        let consumed = consumed_absolute
+            .get(&callee_simplified)
+            .copied()
+            .unwrap_or(0.0);
+        let remainder = callee.absolute_pct - consumed;
+
+        // Only show if there's meaningful remainder
+        if remainder <= 0.01 {
+            continue;
+        }
+
+        visited.insert(callee_simplified.clone());
+
+        // Display this callee
+        let indent = "    ".repeat(indent_level);
+        let callee_symbol = truncate_symbol(&callee.callee, 100 - indent_level * 4);
+        let colored_callee = format_colored_symbol(&callee_symbol, use_color);
+        output.push_str(&format!(
+            "{:>8.2}  {:>6.2}  {}{}\n",
+            callee.relative_pct, 0.0, indent, colored_callee
+        ));
+
+        // Add debug annotation
+        let annotation = format_debug_annotation(
+            &callee.intermediary_path,
+            callee.relative_pct,
+            callee.callee_direct_pct,
+            use_color,
+            debug,
+        );
+        if !annotation.is_empty() {
+            output.push_str(&format!("                  {}{}\n", indent, annotation));
+        }
+
+        // Look up nested callees for this callee
+        if let Some(nested_relations) = callee_to_callee_map.get(&callee.callee) {
+            // Convert Vec<&CallRelation> to Vec<CallRelation> for recursive call
+            let nested_callees: Vec<CallRelation> =
+                nested_relations.iter().map(|r| (*r).clone()).collect();
+            display_standalone_callees_recursive(
+                &nested_callees,
+                callee_to_callee_map,
                 consumed_absolute,
                 visited,
                 output,
