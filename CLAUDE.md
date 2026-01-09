@@ -87,6 +87,127 @@ Children%   Self%  Function
                       (via do_4d_transform 24.80% × 10.07% = 2.96%)
 ```
 
+## Percentage Semantics and Computation
+
+### Design Specification
+
+From `examples/software-design.txt`, the intended output format for A→B→C where A also calls C directly:
+
+```
+XX% YY% functionA    // Children% relative to total execution time
+XX% YY%   functionB  // relative% of caller's time (A's time going to B)
+XX% YY%     functionC // relative% of B's time (B's time going to C)
+XX% YY%   functionC  // relative% of A's time (A directly calling C, not via B)
+XX% YY% functionB    // standalone: B's remaining time not reached via A
+XX% YY%   functionC  // relative% of standalone B's time going to C
+XX% YY% functionC    // standalone: C's remaining time after subtracting contributions
+```
+
+### Two Types of Percentages
+
+| Type | Reference Frame | Example |
+|------|-----------------|---------|
+| **Standalone/Entry %** | Total execution time (100%) | `51.52% rd_optimize_transform` |
+| **Callee/Relative %** | Parent caller's time | `47.31% evaluate_split` (under rd_optimize) |
+
+**Key rule**: Callee percentages are ALWAYS relative to their immediate caller, not to total execution time.
+
+### Standalone Percentage Computation
+
+```
+standalone% = original_children% - sum(contributions from target callers)
+
+contribution = caller_original% × callee_relative% / 100
+```
+
+Example for `evaluate_split_for_partitions`:
+- Original Children%: 47.31%
+- Called by `rd_optimize_transform` at 47.31% of rd_optimize's time
+- Contribution: 73.86% × 47.31% / 100 = 34.94%
+- Standalone: 47.31% - 34.94% = **12.37%**
+
+### Why Standalone Percentages Can Sum to >100%
+
+Given these standalone values:
+```
+51.52%  rd_optimize_transform
+42.73%  rd_optimize_hexadecatree
+12.37%  evaluate_split_for_partitions
+30.40%  get_mSubbandLF_significance
+21.20%  DCT4DBlock
+ 9.44%  inner_product
+------
+167.66%  TOTAL (exceeds 100%)
+```
+
+**Root cause**: Caller standalones INCLUDE their callee's time by design.
+
+```
+rd_optimize_transform standalone (51.52%) INCLUDES:
+├─ rd_optimize exclusive time
+├─ time spent in evaluate_split (13.08% absolute)
+├─ time spent in hexadecatree (13.08% absolute)
+├─ time spent in DCT4DBlock (3.92% absolute)
+└─ ... all callee time
+
+hexadecatree standalone (42.73%) = hexadecatree time NOT via rd_optimize
+```
+
+The overlap is intentional:
+- rd_optimize's 51.52% includes 13.08% in hexadecatree (when rd_optimize calls it)
+- hexadecatree's 42.73% is time NOT via rd_optimize (different call paths)
+- Both are shown because they answer different questions
+
+**Verification**: hexadecatree total = 13.08% (via rd_optimize) + 42.73% (standalone) = 55.81% ✓
+
+**What standalone subtracts**: Only contributions FROM target callers to the callee:
+- If target A calls target B, we subtract A's contribution from B's standalone
+- We do NOT subtract B's contribution from A's standalone (A keeps full Children%)
+
+**Why this design?**
+1. **Full function profiles**: Callers show their total time including all callees
+2. **Attribution breakdown**: Callees shown indented with their contribution
+3. **Remaining time**: Callee standalones show time from OTHER call paths
+
+If we wanted sum ≤ 100%, we'd need to show only EXCLUSIVE time for callers, losing the ability to show the call relationship hierarchy.
+
+**This is expected behavior**, not a bug. The hierarchy answers: *"What does this function's execution profile look like, and what remains after attribution?"* — not *"What disjoint partition of execution does each function represent?"*
+
+### Callee Display Under Standalone Entries
+
+Callees under standalone entries show their **original relative percentage** (relative to caller's TOTAL time, not standalone time):
+
+```
+   12.37    0.00  evaluate_split_for_partitions  <- 12.37% standalone
+   47.23    0.00      rd_optimize_transform      <- 47.23% of evaluate_split's TOTAL time
+```
+
+**Why 47.23% > 12.37%**: Different reference frames:
+- 12.37% = standalone (relative to 100% total execution)
+- 47.23% = callee's share of evaluate_split's original 47.31% time
+
+We cannot compute "callee % relative to standalone" because perf data doesn't tell us how the standalone portion distributes among callees.
+
+### Multi-Level Nesting
+
+Both first pass (root callers) and second pass (standalone entries) support recursive nesting:
+
+```
+   12.37    0.00  evaluate_split_for_partitions     <- standalone entry
+   47.23    0.00      rd_optimize_transform         <- level 1 callee
+   17.71    0.00          rd_optimize_hexadecatree  <- level 2 (nested)
+    0.65    0.00              get_mSubbandLF_significance  <- level 3
+```
+
+Implementation: `display_standalone_callees_recursive` in `output.rs` uses `callee_to_callee_map` to look up nested callees.
+
+### Contribution Tracking
+
+To avoid showing the same callee multiple times:
+1. First pass tracks `consumed_absolute` for each callee shown under root callers
+2. Second pass checks `remainder = absolute_pct - consumed` before displaying
+3. Only callees with `remainder > 0.01` are shown
+
 ## Perf Report Format
 
 Perf reports have top-level entries with call trees:
@@ -134,3 +255,4 @@ cargo clippy
 - **004**: Debug calculation path with `--debug` flag (shows percentage derivation annotations)
 - **005**: Clap CLI refactor - replaced ad-hoc argument parsing with Clap derive macros
 - **007**: Exact target file matching via `--target-file` flag - reduces ambiguity in function name matching by using exact function signatures from a file
+- **008**: Multi-level nesting for standalone entries - callees under standalone entries now recursively show their own callees, matching the design spec in `examples/software-design.txt`
